@@ -28,7 +28,8 @@ jobs:
         if: matrix.os != 'windows-latest' || matrix.node == 22
         shell: bash
         run: |
-          PACKAGE_TARBALL="$(npm pack --silent)"
+          npm pack --silent
+          PACKAGE_TARBALL="$(node -p "const p=require('./package.json'); p.name+'-'+p.version+'.tgz'")"
           TEMP_PROJECT="$(mktemp -d)"
           npm install --prefix "$TEMP_PROJECT" "$PWD/$PACKAGE_TARBALL"
           "$TEMP_PROJECT/node_modules/.bin/cpm" --version
