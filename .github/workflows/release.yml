@@ -1,0 +1,36 @@
+name: Publish to npm
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - name: Verify release tag
+        run: |
+          EXPECTED_TAG="v$(node -p "require('./package.json').version")"
+          test "$GITHUB_REF_NAME" = "$EXPECTED_TAG"
+      - name: Publish package
+        run: |
+          PACKAGE_SPEC="$(node -p "const p=require('./package.json'); p.name+'@'+p.version")"
+          if npm view "$PACKAGE_SPEC" version >/dev/null 2>&1; then
+            echo "$PACKAGE_SPEC is already published"
+            exit 0
+          fi
+          npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

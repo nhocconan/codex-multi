@@ -1,0 +1,68 @@
+{
+  "name": "codex-profile-manager",
+  "version": "0.1.0",
+  "description": "Run multiple Codex CLI accounts side by side with isolated auth and codex-<profile> launchers.",
+  "license": "MIT",
+  "author": "Tien Le",
+  "type": "module",
+  "bin": {
+    "cpm": "dist/cli.js",
+    "codex-profile-manager": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "codex",
+    "openai",
+    "cli",
+    "accounts",
+    "profiles",
+    "multi-account",
+    "switcher"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nhocconan/codex-profile-manager.git"
+  },
+  "homepage": "https://github.com/nhocconan/codex-profile-manager#readme",
+  "bugs": {
+    "url": "https://github.com/nhocconan/codex-profile-manager/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepare": "tsup",
+    "prepublishOnly": "npm run verify",
+    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "6.0.6",
+    "@types/node": "^22.10.0",
+    "@types/proper-lockfile": "4.1.4",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "esbuild": "0.27.2",
+    "vite": "6.4.3"
+  },
+  "dependencies": {
+    "cross-spawn": "7.0.6",
+    "proper-lockfile": "4.1.2"
+  }
+}
