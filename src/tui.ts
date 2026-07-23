@@ -17,7 +17,7 @@ export async function run(): Promise<number> {
     "Sync launchers",
     "Quit",
   ];
-  const choice = await select(actions, "Codex Profile Manager");
+  const choice = await select(actions, "Codex Multi");
   if (!choice.ok) return 0;
   if (choice.index < profiles.length) return await launch(profiles[choice.index]!.slug, []);
   const action = choice.index - profiles.length;

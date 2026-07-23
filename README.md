@@ -1,24 +1,24 @@
 <div align="center">
 
-# `codex-profile-manager`
+# `codex-multi`
 
-Run multiple Codex CLI accounts side by side.
+Multiple Codex accounts. One command. One shared skills setup.
 
 `codex-personal` · `codex-work` · `codex-client`
 
 </div>
 
-Codex Profile Manager gives every Codex account its own launcher and isolated
+Codex Multi gives every Codex account its own launcher and isolated
 login while keeping your existing config, skills, plugins, rules, MCP servers,
 memories, and sessions shared.
 
 ```bash
-$ npx codex-profile-manager add --name Personal --slug personal
+$ npx codex-multi add --name Personal --slug personal
 Sign in to the Codex account for "Personal".
 ...
 Added Personal. Launch it with: codex-personal
 
-$ npx codex-profile-manager add --name Work --slug work
+$ npx codex-multi add --name Work --slug work
 $ codex-personal
 $ codex-work exec "review this repository"
 ```
@@ -31,6 +31,18 @@ Different profiles run concurrently. A single profile is lifecycle-locked
 while its Codex process is active so login, rename, or removal cannot replace
 credentials underneath that process.
 
+## Install skills once, use them everywhere
+
+Your Codex skills stay in the normal `~/.codex/skills` directory. Codex Multi
+links that same directory into every managed profile, so a skill installed once
+is immediately available from `codex-personal`, `codex-work`, and every other
+account alias.
+
+The same sharing model covers rules, plugins, MCP configuration, memories, and
+sessions. Only credentials, generated profile config, and process-local runtime
+files stay isolated. You get separate accounts without maintaining separate
+toolboxes.
+
 ## Install
 
 Requires Node.js 18+ and the official [`codex`](https://www.npmjs.com/package/@openai/codex)
@@ -39,30 +51,37 @@ CLI on `PATH`.
 ### npx
 
 ```bash
-npx codex-profile-manager add
+npx codex-multi add
+```
+
+There is no install step. After login, launch the generated alias directly:
+
+```bash
+codex-personal
 ```
 
 Launchers created from an npx run pin the manager version that created them,
 so they keep working after npm clears its temporary cache without silently
-adopting future code. Run a newer manager’s `cpm sync` to upgrade them.
+adopting future code. Run `npx codex-multi sync` with a newer release to upgrade
+them.
 
 ### Global install
 
 For faster launcher startup and offline use:
 
 ```bash
-npm install -g codex-profile-manager
+npm install -g codex-multi
 cpm add
 ```
 
-Both `cpm` and `codex-profile-manager` invoke the manager. Account launchers
-always use the `codex-<slug>` form.
+Both `cpm` and `codex-multi` invoke the manager after a global install. Account
+launchers always use the `codex-<slug>` form.
 
 ### From source
 
 ```bash
-git clone https://github.com/nhocconan/codex-profile-manager.git
-cd codex-profile-manager
+git clone https://github.com/nhocconan/codex-multi.git
+cd codex-multi
 npm install
 npm run verify
 npm install -g .
@@ -135,10 +154,10 @@ unset MY_CODEX_API_KEY
 
 OpenAI documents that Codex stores file-based credentials in
 `$CODEX_HOME/auth.json` and that `CODEX_HOME` defaults to `~/.codex`.
-Codex Profile Manager uses that supported boundary:
+Codex Multi uses that supported boundary:
 
 ```text
-~/.config/codex-profile-manager/
+~/.config/codex-multi/
 ├── profiles.json
 └── profiles/
     ├── personal/
@@ -194,10 +213,10 @@ These are useful for testing or nonstandard installations:
 
 | Variable | Meaning |
 |---|---|
-| `CODEX_PROFILE_MANAGER_HOME` | Manager state root |
-| `CODEX_PROFILE_MANAGER_BASE_HOME` | Shared base Codex home (default `~/.codex`) |
-| `CODEX_PROFILE_MANAGER_BIN_DIR` | Launcher directory |
-| `CODEX_PROFILE_MANAGER_CODEX_BIN` | Exact Codex executable |
+| `CODEX_MULTI_HOME` | Manager state root |
+| `CODEX_MULTI_BASE_HOME` | Shared base Codex home (default `~/.codex`) |
+| `CODEX_MULTI_BIN_DIR` | Launcher directory |
+| `CODEX_MULTI_CODEX_BIN` | Exact Codex executable |
 
 ## Design boundaries
 

@@ -16,7 +16,7 @@ const personal: Profile = {
 
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-wrappers-"));
-  process.env.CODEX_PROFILE_MANAGER_BIN_DIR = join(root, "bin");
+  process.env.CODEX_MULTI_BIN_DIR = join(root, "bin");
   oldArgv1 = process.argv[1] || "";
   const stableSelf = join(root, "cli.js");
   await fs.writeFile(stableSelf, "manager");
@@ -25,7 +25,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   process.argv[1] = oldArgv1;
-  delete process.env.CODEX_PROFILE_MANAGER_BIN_DIR;
+  delete process.env.CODEX_MULTI_BIN_DIR;
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -35,7 +35,7 @@ describe("launcher synchronization", () => {
     expect(result.created).toBe(1);
     const suffix = process.platform === "win32" ? ".cmd" : "";
     const source = await fs.readFile(join(root, "bin", `codex-personal${suffix}`), "utf8");
-    expect(source).toContain("codex-profile-manager launcher");
+    expect(source).toContain("codex-multi launcher");
     expect(source).toContain("personal");
   });
 
@@ -72,6 +72,6 @@ describe("launcher synchronization", () => {
       "utf8",
     );
     expect(launcher).toContain("npx");
-    expect(launcher).toContain("codex-profile-manager@0.1.0");
+    expect(launcher).toContain("codex-multi@0.2.0");
   });
 });

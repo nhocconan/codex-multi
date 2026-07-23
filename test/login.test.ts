@@ -11,9 +11,9 @@ let profile: Profile;
 
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-login-"));
-  process.env.CODEX_PROFILE_MANAGER_BASE_HOME = join(root, "base");
-  process.env.CODEX_PROFILE_MANAGER_HOME = join(root, "manager");
-  process.env.CODEX_PROFILE_MANAGER_CODEX_BIN = await fakeCodex(root);
+  process.env.CODEX_MULTI_BASE_HOME = join(root, "base");
+  process.env.CODEX_MULTI_HOME = join(root, "manager");
+  process.env.CODEX_MULTI_CODEX_BIN = await fakeCodex(root);
   process.env.CPM_LOGIN_OUTPUT = join(root, "login.json");
   await fs.mkdir(join(root, "base"), { recursive: true });
   profile = { slug: "work", label: "Work", createdAt: "2026-01-01T00:00:00.000Z" };
@@ -21,9 +21,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   for (const key of [
-    "CODEX_PROFILE_MANAGER_BASE_HOME",
-    "CODEX_PROFILE_MANAGER_HOME",
-    "CODEX_PROFILE_MANAGER_CODEX_BIN",
+    "CODEX_MULTI_BASE_HOME",
+    "CODEX_MULTI_HOME",
+    "CODEX_MULTI_CODEX_BIN",
     "CPM_LOGIN_OUTPUT",
     "CPM_LOGIN_EXIT",
     "CPM_TEST_API_KEY",

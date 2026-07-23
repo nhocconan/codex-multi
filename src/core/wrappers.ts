@@ -8,7 +8,7 @@ import {
 } from "./paths.ts";
 import { VERSION } from "../version.ts";
 
-const MARKER = "codex-profile-manager launcher";
+const MARKER = "codex-multi launcher";
 
 export interface SyncResult {
   created: number;
@@ -99,7 +99,7 @@ export async function removeLauncher(slug: string): Promise<void> {
 
 function unixLauncher(slug: string, self: string, transient: boolean): string {
   const managerCommand = transient
-    ? `const command = "npx";\nconst prefix = ["--yes", "codex-profile-manager@${VERSION}"];`
+    ? `const command = "npx";\nconst prefix = ["--yes", "codex-multi@${VERSION}"];`
     : `const command = process.execPath;\nconst prefix = [${JSON.stringify(self)}];`;
   return `#!/usr/bin/env node
 // ${MARKER}
@@ -109,7 +109,7 @@ const child = spawn(command, [...prefix, "launch", ${JSON.stringify(slug)}, "--"
   stdio: "inherit",
 });
 child.on("error", (error) => {
-  console.error("Could not start codex-profile-manager:", error.message);
+  console.error("Could not start codex-multi:", error.message);
   process.exitCode = 1;
 });
 child.on("exit", (code, signal) => {
@@ -121,7 +121,7 @@ child.on("exit", (code, signal) => {
 
 function windowsLauncher(slug: string, self: string, transient: boolean): string {
   if (transient) {
-    return `@echo off\r\nrem ${MARKER}\r\nnpx --yes codex-profile-manager@${VERSION} launch ${slug} -- %*\r\n`;
+    return `@echo off\r\nrem ${MARKER}\r\nnpx --yes codex-multi@${VERSION} launch ${slug} -- %*\r\n`;
   }
   return `@echo off\r\nrem ${MARKER}\r\n"${process.execPath}" "${self}" launch ${slug} -- %*\r\n`;
 }
@@ -136,6 +136,6 @@ async function writeLauncher(path: string, content: string): Promise<void> {
 export function launcherTargetDescription(): string {
   const self = resolveSelfBinary();
   return isTransientSelf(self)
-    ? `npx codex-profile-manager@${VERSION} (durable fallback)`
+    ? `npx codex-multi@${VERSION} (durable fallback)`
     : basename(self);
 }

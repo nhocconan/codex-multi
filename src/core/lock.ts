@@ -24,7 +24,7 @@ export async function withFileLock<T>(
     });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ELOCKED") {
-      throw new Error(`another codex-profile-manager operation holds ${path}`, {
+      throw new Error(`another codex-multi operation holds ${path}`, {
         cause: error,
       });
     }

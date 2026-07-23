@@ -14,7 +14,7 @@ import { launcherTargetDescription } from "../core/wrappers.ts";
 export async function doctor(): Promise<number> {
   const profiles = await load();
   const findings: string[] = [];
-  console.log("Codex Profile Manager doctor\n");
+  console.log("Codex Multi doctor\n");
   console.log(`  Codex binary : ${resolveCodexBinary()}`);
   console.log(`  Base home    : ${baseCodexHome()}`);
   console.log(`  Profiles     : ${profiles.length}`);
@@ -46,8 +46,8 @@ export async function doctor(): Promise<number> {
     const launcher = launcherPath(profile.slug);
     try {
       const source = await fs.readFile(launcher, "utf8");
-      console.log(`    launcher : ${source.includes("codex-profile-manager launcher") ? "ready" : "foreign file"}`);
-      if (!source.includes("codex-profile-manager launcher")) {
+      console.log(`    launcher : ${source.includes("codex-multi launcher") ? "ready" : "foreign file"}`);
+      if (!source.includes("codex-multi launcher")) {
         findings.push(`${profile.label}: launcher path is owned by another file`);
       }
     } catch {

@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.0] - 2026-07-23
+
+### Changed
+
+- Rename the package and primary command to the shorter `codex-multi`.
+- Make shared Codex skills a first-class feature: install a skill once under
+  `~/.codex/skills` and use it from every account profile.
+- Reserve `codex-multi` for the manager so it cannot collide with a generated
+  profile launcher.
+
 ## [0.1.0] - 2026-07-23
 
 ### Added

@@ -1,6 +1,6 @@
 # Testing
 
-Codex Profile Manager uses Vitest for behavior tests and TypeScript's compiler
+Codex Multi uses Vitest for behavior tests and TypeScript's compiler
 for static checks. The tests use temporary directories and fake credentials;
 they never read or print the developer's real tokens.
 

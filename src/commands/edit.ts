@@ -36,7 +36,9 @@ export async function edit(slug: string, options: EditOptions): Promise<void> {
     throw new Error("display name must be non-empty and contain no control characters");
   }
   if (!validSlug(nextSlug)) {
-    throw new Error("suffix must use lowercase letters, numbers, and internal hyphens only");
+    throw new Error(
+      'suffix must use lowercase letters, numbers, and internal hyphens only; "multi" is reserved',
+    );
   }
   await withFileLocks(
     [profileMutationLockPath(slug), profileMutationLockPath(nextSlug)],

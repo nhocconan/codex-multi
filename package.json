@@ -1,13 +1,13 @@
 {
-  "name": "codex-profile-manager",
-  "version": "0.1.0",
-  "description": "Run multiple Codex CLI accounts side by side with isolated auth and codex-<profile> launchers.",
+  "name": "codex-multi",
+  "version": "0.2.0",
+  "description": "Run multiple Codex accounts with isolated logins, memorable aliases, and one shared skills setup.",
   "license": "MIT",
   "author": "Tien Le",
   "type": "module",
   "bin": {
     "cpm": "dist/cli.js",
-    "codex-profile-manager": "dist/cli.js"
+    "codex-multi": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -22,18 +22,20 @@
     "accounts",
     "profiles",
     "multi-account",
-    "switcher"
+    "switcher",
+    "skills",
+    "mcp"
   ],
   "engines": {
     "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nhocconan/codex-profile-manager.git"
+    "url": "git+https://github.com/nhocconan/codex-multi.git"
   },
-  "homepage": "https://github.com/nhocconan/codex-profile-manager#readme",
+  "homepage": "https://github.com/nhocconan/codex-multi#readme",
   "bugs": {
-    "url": "https://github.com/nhocconan/codex-profile-manager/issues"
+    "url": "https://github.com/nhocconan/codex-multi/issues"
   },
   "publishConfig": {
     "access": "public"

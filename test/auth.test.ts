@@ -17,14 +17,14 @@ function jwt(claims: Record<string, unknown>): string {
 
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-auth-"));
-  process.env.CODEX_PROFILE_MANAGER_BASE_HOME = join(root, "base");
-  process.env.CODEX_PROFILE_MANAGER_HOME = join(root, "manager");
+  process.env.CODEX_MULTI_BASE_HOME = join(root, "base");
+  process.env.CODEX_MULTI_HOME = join(root, "manager");
   await fs.mkdir(join(root, "base"), { recursive: true });
 });
 
 afterEach(async () => {
-  delete process.env.CODEX_PROFILE_MANAGER_BASE_HOME;
-  delete process.env.CODEX_PROFILE_MANAGER_HOME;
+  delete process.env.CODEX_MULTI_BASE_HOME;
+  delete process.env.CODEX_MULTI_HOME;
   await fs.rm(root, { recursive: true, force: true });
 });
 

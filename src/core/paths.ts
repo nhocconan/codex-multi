@@ -13,12 +13,12 @@ function envOr(name: string, fallback: string): string {
 
 /** Codex home whose non-auth data is shared by every managed profile. */
 export function baseCodexHome(): string {
-  return envOr("CODEX_PROFILE_MANAGER_BASE_HOME", join(home(), ".codex"));
+  return envOr("CODEX_MULTI_BASE_HOME", join(home(), ".codex"));
 }
 
 /** Manager-owned state. It intentionally lives outside CODEX_HOME. */
 export function dataRoot(): string {
-  const explicit = process.env.CODEX_PROFILE_MANAGER_HOME;
+  const explicit = process.env.CODEX_MULTI_HOME;
   if (explicit) return explicit;
   const configRoot = envOr(
     "XDG_CONFIG_HOME",
@@ -26,15 +26,15 @@ export function dataRoot(): string {
       ? envOr("APPDATA", join(home(), "AppData", "Roaming"))
       : join(home(), ".config"),
   );
-  return join(configRoot, "codex-profile-manager");
+  return join(configRoot, "codex-multi");
 }
 
 export function profilesFile(): string {
-  return envOr("CODEX_PROFILE_MANAGER_PROFILES_FILE", join(dataRoot(), "profiles.json"));
+  return envOr("CODEX_MULTI_PROFILES_FILE", join(dataRoot(), "profiles.json"));
 }
 
 export function profileHomesDir(): string {
-  return envOr("CODEX_PROFILE_MANAGER_PROFILES_DIR", join(dataRoot(), "profiles"));
+  return envOr("CODEX_MULTI_PROFILES_DIR", join(dataRoot(), "profiles"));
 }
 
 export function profileHome(slug: string): string {
@@ -70,7 +70,7 @@ function isWritableDirectory(path: string): boolean {
 
 /** Directory used for codex-<slug> launchers. */
 export function launchersDir(): string {
-  const explicit = process.env.CODEX_PROFILE_MANAGER_BIN_DIR;
+  const explicit = process.env.CODEX_MULTI_BIN_DIR;
   if (explicit) return explicit;
 
   const preferred = join(home(), ".local", "bin");
@@ -99,7 +99,7 @@ function isTransientDirectory(path: string): boolean {
 
 /** Resolve the real Codex executable, never a codex-<profile> launcher. */
 export function resolveCodexBinary(): string {
-  const explicit = process.env.CODEX_PROFILE_MANAGER_CODEX_BIN;
+  const explicit = process.env.CODEX_MULTI_CODEX_BIN;
   if (explicit) return explicit;
   const names = process.platform === "win32" ? ["codex.exe", "codex.cmd", "codex"] : ["codex"];
   for (const dir of pathEntries()) {
@@ -113,7 +113,7 @@ export function resolveCodexBinary(): string {
 
 /** Current manager entry point, used by durable launcher scripts. */
 export function resolveSelfBinary(): string {
-  return process.argv[1] || "codex-profile-manager";
+  return process.argv[1] || "codex-multi";
 }
 
 export function launcherName(slug: string): string {

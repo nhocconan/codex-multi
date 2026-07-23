@@ -116,7 +116,7 @@ async function writeProfileConfig(base: string, destination: string): Promise<vo
     return insideTable || !/^\s*cli_auth_credentials_store\s*=/.test(line);
   });
   const content = [
-    "# Managed by codex-profile-manager; regenerated from the base Codex config.",
+    "# Managed by codex-multi; regenerated from the base Codex config.",
     'cli_auth_credentials_store = "file"',
     ...kept,
   ].join("\n");

@@ -12,8 +12,8 @@ beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-home-"));
   base = join(root, "base");
   manager = join(root, "manager");
-  process.env.CODEX_PROFILE_MANAGER_BASE_HOME = base;
-  process.env.CODEX_PROFILE_MANAGER_HOME = manager;
+  process.env.CODEX_MULTI_BASE_HOME = base;
+  process.env.CODEX_MULTI_HOME = manager;
   await fs.mkdir(join(base, "skills"), { recursive: true });
   await fs.mkdir(join(base, "ipc"), { recursive: true });
   await fs.mkdir(join(base, "process_manager"), { recursive: true });
@@ -27,8 +27,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  delete process.env.CODEX_PROFILE_MANAGER_BASE_HOME;
-  delete process.env.CODEX_PROFILE_MANAGER_HOME;
+  delete process.env.CODEX_MULTI_BASE_HOME;
+  delete process.env.CODEX_MULTI_HOME;
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -58,6 +58,20 @@ describe("profile home isolation", () => {
     await buildProfileHome("work");
     expect(await fs.readFile(join(home, "config.toml"), "utf8")).toContain('model = "new-model"');
     expect(await fs.readFile(join(home, "auth.json"), "utf8")).toContain('"chatgpt"');
+  });
+
+  it("shares one live skills directory across every account profile", async () => {
+    const personal = await buildProfileHome("personal");
+    const work = await buildProfileHome("work");
+
+    await fs.writeFile(join(base, "skills", "team-skill.md"), "available everywhere");
+
+    await expect(fs.readFile(join(personal, "skills", "team-skill.md"), "utf8")).resolves.toBe(
+      "available everywhere",
+    );
+    await expect(fs.readFile(join(work, "skills", "team-skill.md"), "utf8")).resolves.toBe(
+      "available everywhere",
+    );
   });
 
   it("recognizes credential and runtime-private names", () => {

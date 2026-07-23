@@ -21,7 +21,7 @@ export function command(profile: Profile): string {
 }
 
 export function validSlug(slug: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+  return slug !== "multi" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 }
 
 export function validLabel(label: string): boolean {
@@ -35,6 +35,7 @@ export function slugify(label: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
   if (slug.startsWith("codex-")) slug = slug.slice("codex-".length);
+  if (slug === "multi") slug = "multi-profile";
   return slug;
 }
 
