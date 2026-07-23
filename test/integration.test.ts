@@ -15,9 +15,9 @@ let originalPath: string | undefined;
 
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-integration-"));
-  process.env.CODEX_PROFILE_MANAGER_BASE_HOME = join(root, "base");
-  process.env.CODEX_PROFILE_MANAGER_HOME = join(root, "manager");
-  process.env.CODEX_PROFILE_MANAGER_BIN_DIR = join(root, "bin");
+  process.env.CODEX_MULTI_BASE_HOME = join(root, "base");
+  process.env.CODEX_MULTI_HOME = join(root, "manager");
+  process.env.CODEX_MULTI_BIN_DIR = join(root, "bin");
   originalPath = process.env.PATH;
   process.env.PATH = `${join(root, "bin")}${delimiter}${originalPath ?? ""}`;
   await fs.mkdir(join(root, "base"), { recursive: true });
@@ -29,16 +29,16 @@ beforeEach(async () => {
       tokens: { access_token: "access", refresh_token: "refresh" },
     }),
   );
-  process.env.CODEX_PROFILE_MANAGER_CODEX_BIN = await fakeCodex(root);
+  process.env.CODEX_MULTI_CODEX_BIN = await fakeCodex(root);
   process.env.CPM_FAKE_OUTPUT = join(root, "launch.json");
 });
 
 afterEach(async () => {
   for (const key of [
-    "CODEX_PROFILE_MANAGER_BASE_HOME",
-    "CODEX_PROFILE_MANAGER_HOME",
-    "CODEX_PROFILE_MANAGER_BIN_DIR",
-    "CODEX_PROFILE_MANAGER_CODEX_BIN",
+    "CODEX_MULTI_BASE_HOME",
+    "CODEX_MULTI_HOME",
+    "CODEX_MULTI_BIN_DIR",
+    "CODEX_MULTI_CODEX_BIN",
     "CPM_FAKE_OUTPUT",
     "CPM_FAKE_DELAY_MS",
   ]) {
@@ -86,7 +86,7 @@ describe("import and launch", () => {
   it("keeps a committed profile when launcher creation fails", async () => {
     const blocked = join(root, "blocked-launcher-path");
     await fs.writeFile(blocked, "not a directory");
-    process.env.CODEX_PROFILE_MANAGER_BIN_DIR = blocked;
+    process.env.CODEX_MULTI_BIN_DIR = blocked;
     await expect(
       add({ name: "Saved", slug: "saved", importCurrent: true }),
     ).resolves.toBeUndefined();

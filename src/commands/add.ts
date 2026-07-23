@@ -33,7 +33,9 @@ export async function add(options: AddOptions = {}): Promise<void> {
     (await promptLine("Command suffix (without codex-)", slugify(label)));
   slug = slug.replace(/^codex-/, "");
   if (!validSlug(slug)) {
-    throw new Error("suffix must use lowercase letters, numbers, and internal hyphens only");
+    throw new Error(
+      'suffix must use lowercase letters, numbers, and internal hyphens only; "multi" is reserved',
+    );
   }
   await withFileLock(profileMutationLockPath(slug), async () => {
     await addLocked(label, slug, options);

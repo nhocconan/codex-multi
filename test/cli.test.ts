@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-process.env.CODEX_PROFILE_MANAGER_NO_AUTO_RUN = "1";
-const { parseFlags } = await import("../src/cli.ts");
+process.env.CODEX_MULTI_NO_AUTO_RUN = "1";
+const { main, parseFlags } = await import("../src/cli.ts");
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("CLI flag parser", () => {
   it("parses values, booleans, short flags, and positionals", () => {
@@ -26,5 +30,11 @@ describe("CLI flag parser", () => {
       "--model",
       "gpt-test",
     ]);
+  });
+
+  it("treats the codex-multi binary as the manager, not a profile launcher", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    await expect(main(["node", "codex-multi", "--version"])).resolves.toBe(0);
+    expect(log).toHaveBeenCalledWith("0.2.0");
   });
 });

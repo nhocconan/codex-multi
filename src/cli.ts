@@ -19,7 +19,7 @@ interface Flags {
 export async function main(argv = process.argv): Promise<number> {
   const invoked = basename(argv[1] || "cpm").replace(/\.cmd$/i, "");
   const raw = argv.slice(2);
-  if (invoked.startsWith("codex-") && invoked !== "codex-profile-manager") {
+  if (invoked.startsWith("codex-") && invoked !== "codex-multi") {
     return await launch(invoked.slice("codex-".length), raw);
   }
 
@@ -141,7 +141,7 @@ function hasFlag(flags: Flags, ...names: string[]): boolean {
 }
 
 function printHelp(): void {
-  console.log(`codex-profile-manager ${VERSION}
+  console.log(`codex-multi ${VERSION}
 
 Run multiple Codex CLI accounts side by side.
 
@@ -166,14 +166,14 @@ Profile options:
   --access-token-env <NAME>        Read access token from an environment variable
 
 Examples:
-  npx codex-profile-manager add --name Personal --slug personal
-  npx codex-profile-manager add --name Work --slug work --device-auth
+  npx codex-multi add --name Personal --slug personal
+  npx codex-multi add --name Work --slug work --device-auth
   codex-personal
   codex-work exec "review this repository"
 `);
 }
 
-if (process.env.CODEX_PROFILE_MANAGER_NO_AUTO_RUN !== "1") {
+if (process.env.CODEX_MULTI_NO_AUTO_RUN !== "1") {
   main()
     .then((code) => {
       process.exitCode = code;

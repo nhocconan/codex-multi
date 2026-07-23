@@ -22,8 +22,8 @@ describe("launch environment", () => {
     };
     const env = buildLaunchEnv(profile, "/isolated");
     expect(env.CODEX_HOME).toBe("/isolated");
-    expect(env.CODEX_PROFILE_MANAGER_SLUG).toBe("work");
-    expect(env.CODEX_PROFILE_MANAGER_LABEL).toBe("Work");
+    expect(env.CODEX_MULTI_SLUG).toBe("work");
+    expect(env.CODEX_MULTI_LABEL).toBe("Work");
     expect(env.OPENAI_API_KEY).toBeUndefined();
     expect(env.CODEX_ACCESS_TOKEN).toBeUndefined();
     expect(env.CPM_TEST_KEEP).toBe("yes");

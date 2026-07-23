@@ -8,12 +8,12 @@ let root = "";
 
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-registry-"));
-  process.env.CODEX_PROFILE_MANAGER_HOME = root;
-  delete process.env.CODEX_PROFILE_MANAGER_PROFILES_FILE;
+  process.env.CODEX_MULTI_HOME = root;
+  delete process.env.CODEX_MULTI_PROFILES_FILE;
 });
 
 afterEach(async () => {
-  delete process.env.CODEX_PROFILE_MANAGER_HOME;
+  delete process.env.CODEX_MULTI_HOME;
   await fs.rm(root, { recursive: true, force: true });
 });
 
@@ -21,6 +21,7 @@ describe("profile registry", () => {
   it("slugifies display names and codex aliases", () => {
     expect(registry.slugify("Personal Account")).toBe("personal-account");
     expect(registry.slugify("codex-Work")).toBe("work");
+    expect(registry.slugify("Codex Multi")).toBe("multi-profile");
     expect(registry.slugify("A__B!!")).toBe("a-b");
   });
 
@@ -30,6 +31,7 @@ describe("profile registry", () => {
     expect(registry.validSlug("../work")).toBe(false);
     expect(registry.validSlug("Work")).toBe(false);
     expect(registry.validSlug("-work")).toBe(false);
+    expect(registry.validSlug("multi")).toBe(false);
     expect(registry.validLabel("Personal")).toBe(true);
     expect(registry.validLabel("Unsafe\u001b[31m")).toBe(false);
   });

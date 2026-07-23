@@ -10,20 +10,20 @@ let originalPath: string | undefined;
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-paths-"));
   originalPath = process.env.PATH;
-  delete process.env.CODEX_PROFILE_MANAGER_BIN_DIR;
+  delete process.env.CODEX_MULTI_BIN_DIR;
 });
 
 afterEach(async () => {
   if (originalPath === undefined) delete process.env.PATH;
   else process.env.PATH = originalPath;
-  delete process.env.CODEX_PROFILE_MANAGER_BIN_DIR;
+  delete process.env.CODEX_MULTI_BIN_DIR;
   await fs.rm(root, { recursive: true, force: true });
 });
 
 describe("launcher path selection", () => {
   it("honors an explicit launcher directory", () => {
     const explicit = join(root, "explicit");
-    process.env.CODEX_PROFILE_MANAGER_BIN_DIR = explicit;
+    process.env.CODEX_MULTI_BIN_DIR = explicit;
     expect(launchersDir()).toBe(explicit);
   });
 

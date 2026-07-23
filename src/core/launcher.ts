@@ -20,8 +20,8 @@ export function buildLaunchEnv(profile: Profile, home: string): NodeJS.ProcessEn
     env[key] = value;
   }
   env.CODEX_HOME = home;
-  env.CODEX_PROFILE_MANAGER_SLUG = profile.slug;
-  env.CODEX_PROFILE_MANAGER_LABEL = profile.label;
+  env.CODEX_MULTI_SLUG = profile.slug;
+  env.CODEX_MULTI_LABEL = profile.label;
   return env;
 }
 

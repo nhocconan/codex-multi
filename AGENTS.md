@@ -1,4 +1,4 @@
-# Agent guidelines — codex-profile-manager
+# Agent guidelines — codex-multi
 
 ## Product invariants
 
