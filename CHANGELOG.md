@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.1] - 2026-07-24
+
+### Fixed
+
+- Generated `codex-<profile>` launchers now invoke the manager through
+  `npx --package=codex-multi@<ver> codex-multi …` instead of `npx codex-multi@<ver> …`.
+  The package ships two bins (`codex-multi` and `cpm`); the old form left npx to
+  guess between them and, on a cold cache, could resolve to `cpm` and fail with
+  `sh: cpm: command not found`. Naming the bin explicitly removes the ambiguity.
+  Reordered `package.json` `bin` so `codex-multi` (matching the package name)
+  comes first as a second line of defense.
+
 ## [0.2.0] - 2026-07-23
 
 ### Changed

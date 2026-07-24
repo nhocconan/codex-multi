@@ -72,6 +72,10 @@ describe("launcher synchronization", () => {
       "utf8",
     );
     expect(launcher).toContain("npx");
-    expect(launcher).toContain("codex-multi@0.2.0");
+    expect(launcher).toContain("codex-multi@0.2.1");
+    // Must name the codex-multi bin explicitly so npx never falls back to
+    // guessing among the package's multiple bins (cpm/codex-multi).
+    expect(launcher).toContain("--package=codex-multi@0.2.1");
+    expect(launcher).toContain('"codex-multi"');
   });
 });

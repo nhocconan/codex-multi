@@ -1,13 +1,13 @@
 {
   "name": "codex-multi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Run multiple Codex accounts with isolated logins, memorable aliases, and one shared skills setup.",
   "license": "MIT",
   "author": "Tien Le",
   "type": "module",
   "bin": {
-    "cpm": "dist/cli.js",
-    "codex-multi": "dist/cli.js"
+    "codex-multi": "dist/cli.js",
+    "cpm": "dist/cli.js"
   },
   "files": [
     "dist",

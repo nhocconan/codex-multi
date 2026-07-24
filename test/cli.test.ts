@@ -35,6 +35,6 @@ describe("CLI flag parser", () => {
   it("treats the codex-multi binary as the manager, not a profile launcher", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     await expect(main(["node", "codex-multi", "--version"])).resolves.toBe(0);
-    expect(log).toHaveBeenCalledWith("0.2.0");
+    expect(log).toHaveBeenCalledWith("0.2.1");
   });
 });

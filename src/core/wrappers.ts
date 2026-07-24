@@ -99,7 +99,7 @@ export async function removeLauncher(slug: string): Promise<void> {
 
 function unixLauncher(slug: string, self: string, transient: boolean): string {
   const managerCommand = transient
-    ? `const command = "npx";\nconst prefix = ["--yes", "codex-multi@${VERSION}"];`
+    ? `const command = "npx";\nconst prefix = ["--yes", "--package=codex-multi@${VERSION}", "codex-multi"];`
     : `const command = process.execPath;\nconst prefix = [${JSON.stringify(self)}];`;
   return `#!/usr/bin/env node
 // ${MARKER}
@@ -121,7 +121,7 @@ child.on("exit", (code, signal) => {
 
 function windowsLauncher(slug: string, self: string, transient: boolean): string {
   if (transient) {
-    return `@echo off\r\nrem ${MARKER}\r\nnpx --yes codex-multi@${VERSION} launch ${slug} -- %*\r\n`;
+    return `@echo off\r\nrem ${MARKER}\r\nnpx --yes --package=codex-multi@${VERSION} codex-multi launch ${slug} -- %*\r\n`;
   }
   return `@echo off\r\nrem ${MARKER}\r\n"${process.execPath}" "${self}" launch ${slug} -- %*\r\n`;
 }
