@@ -13,7 +13,8 @@ import { launcherTargetDescription } from "../core/wrappers.ts";
 
 export async function doctor(): Promise<number> {
   const profiles = await load();
-  const findings: string[] = [];
+  const errors: string[] = [];
+  const warnings: string[] = [];
   console.log("Codex Multi doctor\n");
   console.log(`  Codex binary : ${resolveCodexBinary()}`);
   console.log(`  Base home    : ${baseCodexHome()}`);
@@ -32,33 +33,33 @@ export async function doctor(): Promise<number> {
     console.log(
       `    auth     : ${auth.ok ? `ready (${auth.mode})` : `INVALID — ${auth.problem ?? "unknown problem"}`}`,
     );
-    if (!auth.ok) findings.push(`${profile.label}: ${auth.problem ?? "invalid auth"}`);
+    if (!auth.ok) errors.push(`${profile.label}: ${auth.problem ?? "invalid auth"}`);
     const home = profileHome(profile.slug);
     console.log(`    home     : ${home}`);
     try {
       const config = await fs.readFile(join(home, "config.toml"), "utf8");
       if (!/^cli_auth_credentials_store\s*=\s*"file"/m.test(config)) {
-        findings.push(`${profile.label}: config does not force file credential storage`);
+        errors.push(`${profile.label}: config does not force file credential storage`);
       }
     } catch {
-      findings.push(`${profile.label}: managed config.toml is missing`);
+      errors.push(`${profile.label}: managed config.toml is missing`);
     }
     const launcher = launcherPath(profile.slug);
     try {
       const source = await fs.readFile(launcher, "utf8");
       console.log(`    launcher : ${source.includes("codex-multi launcher") ? "ready" : "foreign file"}`);
       if (!source.includes("codex-multi launcher")) {
-        findings.push(`${profile.label}: launcher path is owned by another file`);
+        errors.push(`${profile.label}: launcher path is owned by another file`);
       }
     } catch {
       console.log("    launcher : missing");
-      findings.push(`${profile.label}: launcher is missing; run cpm sync`);
+      errors.push(`${profile.label}: launcher is missing; run cpm sync`);
     }
     const fingerprint = await authFingerprint(profile.slug);
     if (fingerprint) {
       const owner = fingerprintOwners.get(fingerprint);
       if (owner) {
-        findings.push(`${profile.label} and ${owner} contain identical auth credentials`);
+        warnings.push(`${profile.label} and ${owner} contain identical auth credentials`);
       } else {
         fingerprintOwners.set(fingerprint, profile.label);
       }
@@ -66,11 +67,17 @@ export async function doctor(): Promise<number> {
     console.log();
   }
 
-  if (findings.length === 0) {
+  if (errors.length === 0 && warnings.length === 0) {
     console.log("✓ No problems detected.");
     return 0;
   }
-  console.log("Findings:");
-  for (const finding of findings) console.log(`  ⚠ ${finding}`);
-  return 1;
+  if (errors.length > 0) {
+    console.log("Errors:");
+    for (const error of errors) console.log(`  ✖ ${error}`);
+  }
+  if (warnings.length > 0) {
+    console.log("Warnings:");
+    for (const warning of warnings) console.log(`  ⚠ ${warning}`);
+  }
+  return errors.length > 0 ? 1 : 0;
 }

@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.2] - 2026-09-22
+
+### Fixed
+
+- Generated launchers now use tiered manager resolution:
+  1. Recorded manager binary if present on disk;
+  2. Dynamic `codex-multi` / `cpm` PATH discovery (avoiding ~2s npx startup overhead and working offline);
+  3. Isolated `npx` fallback passing `--prefix <tmpdir>` so invocations never fail with `sh: codex-multi: command not found` when running inside directories whose `package.json` defines `codex-multi`.
+- Quoted launcher command on Windows to fix cross-platform CI assertions.
+- Separated `cpm doctor` findings into fatal errors (exit code 1) and advisory warnings (exit code 0 for duplicate credentials).
+- Upgraded dependencies to latest secure releases, resolving all audit vulnerabilities.
+
 ## [0.2.1] - 2026-07-24
 
 ### Fixed
