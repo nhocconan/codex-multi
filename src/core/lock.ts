@@ -34,7 +34,13 @@ export async function withFileLock<T>(
   try {
     return await action();
   } finally {
-    await release();
+    try {
+      await release();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ERELEASED") {
+        throw error;
+      }
+    }
   }
 }
 
