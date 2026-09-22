@@ -72,6 +72,30 @@ describe("launcher synchronization", () => {
       "utf8",
     );
     expect(launcher).toContain("npx");
-    expect(launcher).toContain("codex-multi@0.2.0");
+    expect(launcher).toContain("codex-multi@0.2.2");
+    // Must name the codex-multi bin explicitly so npx never falls back to
+    // guessing among the package's multiple bins (cpm/codex-multi).
+    expect(launcher).toContain("--package=codex-multi@0.2.2");
+    expect(launcher).toContain('"codex-multi"');
+    expect(launcher).toContain("--prefix");
+  });
+
+  it("resolves manager dynamically with fallback when recorded self is missing", async () => {
+    const missingSelf = join(root, "missing", "cli.js");
+    process.argv[1] = missingSelf;
+    await syncLaunchers([personal]);
+    const suffix = process.platform === "win32" ? ".cmd" : "";
+    const launcher = await fs.readFile(
+      join(root, "bin", `codex-personal${suffix}`),
+      "utf8",
+    );
+    if (process.platform === "win32") {
+      expect(launcher).toContain("RECORDED_SELF");
+      expect(launcher).toContain("codex-multi.cmd");
+    } else {
+      expect(launcher).toContain("resolveManager");
+      expect(launcher).toContain("fs.existsSync(recorded)");
+      expect(launcher).toContain('"codex-multi", "cpm"');
+    }
   });
 });

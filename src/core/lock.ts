@@ -2,10 +2,36 @@ import { promises as fs } from "node:fs";
 import { dirname } from "node:path";
 import { lock } from "proper-lockfile";
 
+const inProcessLocks = new Map<string, Promise<void>>();
+
 export async function withFileLock<T>(
   path: string,
   action: () => Promise<T>,
   timeoutMs = 5_000,
+): Promise<T> {
+  const previous = inProcessLocks.get(path) ?? Promise.resolve();
+  let releaseInProcess: () => void = () => {};
+  const current = new Promise<void>((resolve) => {
+    releaseInProcess = resolve;
+  });
+  inProcessLocks.set(path, current);
+
+  await previous;
+
+  try {
+    return await withCrossProcessLock(path, action, timeoutMs);
+  } finally {
+    if (inProcessLocks.get(path) === current) {
+      inProcessLocks.delete(path);
+    }
+    releaseInProcess();
+  }
+}
+
+async function withCrossProcessLock<T>(
+  path: string,
+  action: () => Promise<T>,
+  timeoutMs: number,
 ): Promise<T> {
   await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
   let release: () => Promise<void>;
@@ -34,7 +60,13 @@ export async function withFileLock<T>(
   try {
     return await action();
   } finally {
-    await release();
+    try {
+      await release();
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ERELEASED") {
+        throw error;
+      }
+    }
   }
 }
 

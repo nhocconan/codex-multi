@@ -98,13 +98,48 @@ export async function removeLauncher(slug: string): Promise<void> {
 }
 
 function unixLauncher(slug: string, self: string, transient: boolean): string {
-  const managerCommand = transient
-    ? `const command = "npx";\nconst prefix = ["--yes", "codex-multi@${VERSION}"];`
-    : `const command = process.execPath;\nconst prefix = [${JSON.stringify(self)}];`;
+  const recordedSelf = transient ? "null" : JSON.stringify(self);
   return `#!/usr/bin/env node
 // ${MARKER}
 const { spawn } = require("node:child_process");
-${managerCommand}
+const fs = require("node:fs");
+const path = require("node:path");
+const os = require("node:os");
+
+function resolveManager() {
+  const recorded = ${recordedSelf};
+  if (recorded && fs.existsSync(recorded)) {
+    return { command: process.execPath, prefix: [recorded] };
+  }
+
+  const pathDirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  const selfReal = (() => {
+    try { return fs.realpathSync(__filename); } catch { return __filename; }
+  })();
+
+  for (const binName of ["codex-multi", "cpm"]) {
+    for (const dir of pathDirs) {
+      const candidate = path.join(dir, binName);
+      try {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+          const candReal = (() => {
+            try { return fs.realpathSync(candidate); } catch { return candidate; }
+          })();
+          if (candReal !== selfReal) {
+            return { command: candidate, prefix: [] };
+          }
+        }
+      } catch {}
+    }
+  }
+
+  return {
+    command: "npx",
+    prefix: ["--prefix", os.tmpdir(), "--yes", "--package=codex-multi@${VERSION}", "codex-multi"],
+  };
+}
+
+const { command, prefix } = resolveManager();
 const child = spawn(command, [...prefix, "launch", ${JSON.stringify(slug)}, "--", ...process.argv.slice(2)], {
   stdio: "inherit",
 });
@@ -120,10 +155,25 @@ child.on("exit", (code, signal) => {
 }
 
 function windowsLauncher(slug: string, self: string, transient: boolean): string {
-  if (transient) {
-    return `@echo off\r\nrem ${MARKER}\r\nnpx --yes codex-multi@${VERSION} launch ${slug} -- %*\r\n`;
-  }
-  return `@echo off\r\nrem ${MARKER}\r\n"${process.execPath}" "${self}" launch ${slug} -- %*\r\n`;
+  const recordedSelf = transient ? "" : self.replace(/"/g, "");
+  const execPath = process.execPath.replace(/"/g, "");
+  return `@echo off\r
+rem ${MARKER}\r
+setlocal\r
+set "RECORDED_SELF=${recordedSelf}"\r
+if defined RECORDED_SELF if exist "%RECORDED_SELF%" (\r
+  "${execPath}" "%RECORDED_SELF%" launch ${slug} -- %*\r
+  exit /b %errorlevel%\r
+)\r
+for %%I in (codex-multi.cmd codex-multi.exe cpm.cmd cpm.exe) do (\r
+  if not "%%~$PATH:I"=="" (\r
+    "%%~$PATH:I" launch ${slug} -- %*\r
+    exit /b %errorlevel%\r
+  )\r
+)\r
+npx --prefix "%TEMP%" --yes --package=codex-multi@${VERSION} "codex-multi" launch ${slug} -- %*\r
+exit /b %errorlevel%\r
+`;
 }
 
 async function writeLauncher(path: string, content: string): Promise<void> {
