@@ -76,6 +76,23 @@ describe("profile login", () => {
     expect(await fs.readFile(authPath("work"))).toEqual(previous);
   });
 
+  it("replaces the account behind the same slug after a successful login", async () => {
+    const previous = JSON.stringify({
+      auth_mode: "chatgpt",
+      tokens: { account_id: "old-account", access_token: "old-token" },
+    });
+    await fs.mkdir(join(root, "manager", "profiles", "work"), { recursive: true });
+    await fs.writeFile(authPath("work"), previous);
+    await login(profile);
+    const current = JSON.parse(await fs.readFile(authPath("work"), "utf8")) as {
+      tokens: { account_id: string };
+    };
+    expect(current.tokens.account_id).toBe("account-test");
+    expect(await fs.readdir(join(root, "manager", "profiles", "work"))).not.toContain(
+      "auth.json.cpm-backup",
+    );
+  });
+
   it("rejects conflicting secret modes before changing auth", async () => {
     await expect(
       login(profile, { apiKeyEnv: "CPM_TEST_API_KEY", accessTokenEnv: "CPM_TEST_ACCESS_TOKEN" }),

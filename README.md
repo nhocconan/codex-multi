@@ -114,6 +114,16 @@ codex-personal resume --last
 ```
 
 Running `cpm` with no arguments opens an interactive profile picker.
+Choose **Manage profiles** to sign in with another account, edit a profile,
+or remove one you no longer use. Removal asks for confirmation and deletes that
+profile's isolated login and owned launcher. It leaves other profiles and the
+base `~/.codex/auth.json` alone.
+
+To keep a familiar command such as `codex-student` when its current account
+expires, run `cpm login student` or choose **Manage profiles → Student → Sign in
+with another account**. The slug and launcher stay the same. If the new login
+fails, Codex Multi restores the previous profile login. If you have already
+removed a profile, `cpm add --name Student --slug student` can reuse its slug.
 
 ## Commands
 
