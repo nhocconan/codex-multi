@@ -17,6 +17,20 @@ That command runs:
 3. the production bundle
 4. a bundled CLI version smoke test
 
+## Version and release checks
+
+Use `npm version <version> --no-git-tag-version` for a version bump. The npm
+`version` lifecycle hook runs all verification and `npm pack --dry-run` after
+updating package metadata. Update the source version fallback and changelog in
+the same change. For direct metadata edits, run `npm run version` explicitly.
+
+Publishing is a separate step: create the matching `v<version>` GitHub Release
+to run `.github/workflows/release.yml`, or use authenticated `npm publish`.
+The workflow supports npm trusted publishing with a configured GitHub trusted
+publisher, or the existing `NPM_TOKEN` secret. Check the registry version and
+the actual `npx --yes --package=codex-multi@latest codex-multi --version` output
+before reporting the release as available.
+
 ## Test layers
 
 - Unit tests cover registry validation, auth inspection, config isolation,

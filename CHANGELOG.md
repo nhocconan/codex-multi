@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.2.3] - 2026-09-30
+
+### Fixed
+
+- Keep `app-server-daemon` and `app-server-control` private to each profile.
+  Codex rejects symlinked daemon directories, preventing affected profiles from
+  starting. Launch and sync now remove legacy links while preserving base daemon
+  state, real profile daemon directories, and profile credentials.
+- Run verification, build, and tarball checks during `npm version`; align the
+  package lock version and prepare the release workflow for trusted publishing.
+
 ## [0.2.2] - 2026-09-22
 
 ### Fixed

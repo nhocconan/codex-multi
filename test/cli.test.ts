@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { VERSION } from "../src/version.ts";
 
 process.env.CODEX_MULTI_NO_AUTO_RUN = "1";
 const { main, parseFlags } = await import("../src/cli.ts");
@@ -35,6 +36,6 @@ describe("CLI flag parser", () => {
   it("treats the codex-multi binary as the manager, not a profile launcher", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     await expect(main(["node", "codex-multi", "--version"])).resolves.toBe(0);
-    expect(log).toHaveBeenCalledWith("0.2.2");
+    expect(log).toHaveBeenCalledWith(VERSION);
   });
 });

@@ -9,6 +9,8 @@ const PRIVATE_NAMES = new Set([
   "codex-login.log",
   "ipc",
   "process_manager",
+  "app-server-daemon",
+  "app-server-control",
   "tmp",
   ".tmp",
 ]);

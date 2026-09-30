@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { isTransientSelf, syncLaunchers } from "../src/core/wrappers.ts";
 import type { Profile } from "../src/core/registry.ts";
+import { VERSION } from "../src/version.ts";
 
 let root = "";
 let oldArgv1 = "";
@@ -72,10 +73,10 @@ describe("launcher synchronization", () => {
       "utf8",
     );
     expect(launcher).toContain("npx");
-    expect(launcher).toContain("codex-multi@0.2.2");
+    expect(launcher).toContain(`codex-multi@${VERSION}`);
     // Must name the codex-multi bin explicitly so npx never falls back to
     // guessing among the package's multiple bins (cpm/codex-multi).
-    expect(launcher).toContain("--package=codex-multi@0.2.2");
+    expect(launcher).toContain(`--package=codex-multi@${VERSION}`);
     expect(launcher).toContain('"codex-multi"');
     expect(launcher).toContain("--prefix");
   });

@@ -18,6 +18,8 @@ beforeEach(async () => {
   await fs.mkdir(join(base, "ipc"), { recursive: true });
   await fs.mkdir(join(base, "process_manager"), { recursive: true });
   await fs.mkdir(join(base, "tmp"), { recursive: true });
+  await fs.mkdir(join(base, "app-server-daemon"), { recursive: true });
+  await fs.mkdir(join(base, "app-server-control"), { recursive: true });
   await fs.writeFile(join(base, "skills", "example.md"), "shared skill");
   await fs.writeFile(
     join(base, "config.toml"),
@@ -44,7 +46,7 @@ describe("profile home isolation", () => {
     expect(config).toContain("[features]");
     expect(config).not.toContain('cli_auth_credentials_store = "keyring"');
     expect((await fs.lstat(join(home, "config.toml"))).isSymbolicLink()).toBe(false);
-    for (const runtimeDirectory of ["ipc", "process_manager", "tmp"]) {
+    for (const runtimeDirectory of ["ipc", "process_manager", "tmp", "app-server-daemon", "app-server-control"]) {
       await expect(fs.lstat(join(home, runtimeDirectory))).rejects.toMatchObject({
         code: "ENOENT",
       });
@@ -83,6 +85,49 @@ describe("profile home isolation", () => {
     expect(isPrivateName("ipc")).toBe(true);
     expect(isPrivateName("process_manager")).toBe(true);
     expect(isPrivateName("tmp")).toBe(true);
+    expect(isPrivateName("app-server-daemon")).toBe(true);
+    expect(isPrivateName("app-server-control")).toBe(true);
     expect(isPrivateName("skills")).toBe(false);
+  });
+
+  it.for([false, true])("removes legacy daemon links (dangling: %s) without touching base state or auth", async (dangling, context) => {
+    const home = join(manager, "profiles", "teacher");
+    await fs.mkdir(home, { recursive: true });
+    const auth = '{"OPENAI_API_KEY":"fake-test-key"}';
+    await fs.writeFile(join(home, "auth.json"), auth);
+    for (const name of ["app-server-daemon", "app-server-control"]) {
+      const target = join(base, name);
+      await fs.writeFile(join(target, "keep.txt"), "base runtime state");
+      try {
+        await fs.symlink(dangling ? join(base, `missing-${name}`) : target, join(home, name),
+          process.platform === "win32" ? "junction" : undefined);
+      } catch (error) {
+        if (process.platform === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+          context.skip();
+          return;
+        }
+        throw error;
+      }
+    }
+    await buildProfileHome("teacher");
+    await buildProfileHome("teacher");
+    for (const name of ["app-server-daemon", "app-server-control"]) {
+      await expect(fs.lstat(join(home, name))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await fs.readFile(join(base, name, "keep.txt"), "utf8")).toBe("base runtime state");
+    }
+    expect(await fs.readFile(join(home, "auth.json"), "utf8")).toBe(auth);
+  });
+
+  it("preserves real profile daemon directories and files during sync", async () => {
+    const home = join(manager, "profiles", "teacher");
+    for (const name of ["app-server-daemon", "app-server-control"]) {
+      await fs.mkdir(join(home, name), { recursive: true });
+      await fs.writeFile(join(home, name, "keep.txt"), "profile runtime state");
+    }
+    await buildProfileHome("teacher");
+    for (const name of ["app-server-daemon", "app-server-control"]) {
+      expect((await fs.lstat(join(home, name))).isDirectory()).toBe(true);
+      expect(await fs.readFile(join(home, name, "keep.txt"), "utf8")).toBe("profile runtime state");
+    }
   });
 });
