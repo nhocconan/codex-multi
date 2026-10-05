@@ -106,4 +106,22 @@ describe("cpm doctor", () => {
     expect(log).toHaveBeenCalledWith("Errors:");
     expect(log).toHaveBeenCalledWith(expect.stringContaining("auth.json is missing"));
   });
+
+  it("returns 1 and reports errors when a profile sqlite database is detached", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const profile = { slug: "detached", label: "Detached", createdAt: new Date().toISOString() };
+    await append(profile);
+    const pHome = join(root, "profiles", "detached");
+    await fs.mkdir(pHome, { recursive: true });
+    await fs.writeFile(join(pHome, "config.toml"), 'cli_auth_credentials_store = "file"\n');
+    await atomicWrite(join(pHome, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "sk-test-detached" }));
+    await fs.writeFile(join(root, "base-codex", "queue_1.sqlite"), "base data");
+    await fs.writeFile(join(pHome, "queue_1.sqlite"), "stale detached data");
+    await syncLaunchers([profile]);
+
+    const code = await doctor();
+    expect(code).toBe(1);
+    expect(log).toHaveBeenCalledWith("Errors:");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("queue_1.sqlite is detached"));
+  });
 });

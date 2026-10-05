@@ -87,6 +87,13 @@ describe("profile home isolation", () => {
     expect(isPrivateName("tmp")).toBe(true);
     expect(isPrivateName("app-server-daemon")).toBe(true);
     expect(isPrivateName("app-server-control")).toBe(true);
+    expect(isPrivateName("queue_1.sqlite-wal")).toBe(true);
+    expect(isPrivateName("queue_1.sqlite-shm")).toBe(true);
+    expect(isPrivateName("state_5.sqlite-journal")).toBe(true);
+    expect(isPrivateName("scratch.tmp")).toBe(true);
+    expect(isPrivateName("..codex-global-state.json.tmp-1784875321170-fd571d54-006c-4390-89b6-403c17a95c4c")).toBe(true);
+    expect(isPrivateName("queue_1.sqlite")).toBe(false);
+    expect(isPrivateName("state_5.sqlite")).toBe(false);
     expect(isPrivateName("skills")).toBe(false);
   });
 
@@ -128,6 +135,42 @@ describe("profile home isolation", () => {
     for (const name of ["app-server-daemon", "app-server-control"]) {
       expect((await fs.lstat(join(home, name))).isDirectory()).toBe(true);
       expect(await fs.readFile(join(home, name, "keep.txt"), "utf8")).toBe("profile runtime state");
+    }
+  });
+
+  it("does not link sqlite wal/shm runtime files and cleans up legacy links", async () => {
+    const home = join(manager, "profiles", "personal");
+    await fs.mkdir(home, { recursive: true });
+    await fs.writeFile(join(base, "queue_1.sqlite"), "queue db");
+    await fs.writeFile(join(base, "queue_1.sqlite-wal"), "queue wal");
+    await fs.writeFile(join(base, "queue_1.sqlite-shm"), "queue shm");
+
+    try {
+      await fs.symlink(join(base, "queue_1.sqlite-wal"), join(home, "queue_1.sqlite-wal"));
+      await fs.symlink(join(base, "queue_1.sqlite-shm"), join(home, "queue_1.sqlite-shm"));
+    } catch {
+      // Tolerate Windows symlink restrictions
+    }
+
+    await buildProfileHome("personal");
+
+    expect(await fs.readFile(join(home, "queue_1.sqlite"), "utf8")).toBe("queue db");
+    await expect(fs.lstat(join(home, "queue_1.sqlite-wal"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.lstat(join(home, "queue_1.sqlite-shm"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("replaces detached regular files with shared links", async () => {
+    const home = join(manager, "profiles", "personal");
+    await fs.mkdir(home, { recursive: true });
+    await fs.writeFile(join(base, "queue_1.sqlite"), "canonical db");
+    await fs.writeFile(join(home, "queue_1.sqlite"), "detached stale db");
+
+    await buildProfileHome("personal");
+
+    expect(await fs.readFile(join(home, "queue_1.sqlite"), "utf8")).toBe("canonical db");
+    const stat = await fs.lstat(join(home, "queue_1.sqlite"));
+    if (process.platform !== "win32") {
+      expect(stat.isSymbolicLink()).toBe(true);
     }
   });
 });

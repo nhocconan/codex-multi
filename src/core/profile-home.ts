@@ -19,6 +19,8 @@ export function isPrivateName(name: string): boolean {
   if (PRIVATE_NAMES.has(name)) return true;
   if (/^auth\.json(?:[.-].+)?$/.test(name)) return true;
   if (name.endsWith(".lock") || name.endsWith(".sock")) return true;
+  if (name.endsWith("-wal") || name.endsWith("-shm") || name.endsWith("-journal")) return true;
+  if (name.endsWith(".tmp") || /\.tmp-[0-9a-zA-Z-]+$/.test(name)) return true;
   return false;
 }
 
@@ -72,10 +74,33 @@ export async function buildProfileHome(slug: string): Promise<string> {
 async function ensureSharedEntry(link: string, target: string, directory: boolean): Promise<void> {
   try {
     const stat = await fs.lstat(link);
-    if (!stat.isSymbolicLink()) return;
-    const existing = await fs.readlink(link);
-    if (existing === target) return;
-    await fs.unlink(link);
+    if (stat.isSymbolicLink()) {
+      const existing = await fs.readlink(link);
+      if (existing === target) return;
+      await fs.unlink(link);
+    } else {
+      const [linkStat, targetStat] = await Promise.all([
+        fs.stat(link).catch(() => null),
+        fs.stat(target).catch(() => null),
+      ]);
+      if (
+        linkStat &&
+        targetStat &&
+        linkStat.dev === targetStat.dev &&
+        linkStat.ino === targetStat.ino
+      ) {
+        return;
+      }
+      if (stat.isFile()) {
+        await fs.unlink(link);
+      } else if (stat.isDirectory()) {
+        try {
+          await fs.rmdir(link);
+        } catch {
+          return;
+        }
+      }
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") return;
   }

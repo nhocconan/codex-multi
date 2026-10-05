@@ -44,6 +44,32 @@ export async function doctor(): Promise<number> {
     } catch {
       errors.push(`${profile.label}: managed config.toml is missing`);
     }
+    try {
+      const homeEntries = await fs.readdir(home);
+      for (const name of homeEntries) {
+        if (!name.endsWith(".sqlite")) continue;
+        const entryPath = join(home, name);
+        const stat = await fs.lstat(entryPath);
+        if (!stat.isSymbolicLink()) {
+          const basePath = join(baseCodexHome(), name);
+          try {
+            const [entryStat, baseStat] = await Promise.all([
+              fs.stat(entryPath),
+              fs.stat(basePath),
+            ]);
+            if (entryStat.dev !== baseStat.dev || entryStat.ino !== baseStat.ino) {
+              errors.push(
+                `${profile.label}: ${name} is detached from base Codex state; run cpm sync to repair`,
+              );
+            }
+          } catch {
+            // Base doesn't have it or stat failed
+          }
+        }
+      }
+    } catch {
+      // Home directory missing or unreadable
+    }
     const launcher = launcherPath(profile.slug);
     try {
       const source = await fs.readFile(launcher, "utf8");
