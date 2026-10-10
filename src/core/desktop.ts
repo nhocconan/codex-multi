@@ -364,7 +364,7 @@ export function desktopScript(
   return [
     "#!/bin/sh",
     `# codex-multi desktop launcher: ${slug}`,
-    "unset CODEX_HOME CODEX_ELECTRON_USER_DATA_PATH CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS OPENAI_API_KEY CODEX_ACCESS_TOKEN OPENAI_ORG_ID OPENAI_PROJECT_ID CODEX_MULTI_NO_AUTO_RUN CODEX_MULTI_NO_NATIVE_TOOLS",
+    "unset CODEX_HOME CODEX_ELECTRON_USER_DATA_PATH CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS OPENAI_API_KEY CODEX_ACCESS_TOKEN OPENAI_ORG_ID OPENAI_PROJECT_ID CODEX_MULTI_NO_AUTO_RUN CODEX_MULTI_NO_NATIVE_TOOLS CODEX_MULTI_DESKTOP_APP",
     `CODEX_HOME='${escapeSingleQuoted(home)}'`,
     `DATA_DIR='${escapeSingleQuoted(dataDir)}'`,
     `APP_PATH='${escapeSingleQuoted(app.path)}'`,
@@ -375,7 +375,6 @@ export function desktopScript(
       CODEX_MULTI_BASE_HOME: baseCodexHome(),
       CODEX_MULTI_APPS_DIR: desktopAppsDir(),
     }).map(([key, value]) => `export ${key}='${escapeSingleQuoted(value)}'`),
-    'export CODEX_MULTI_DESKTOP_APP="$APP_PATH"',
     // The manager refreshes config and serializes launch with profile mutation.
     `exec '${escapeSingleQuoted(process.execPath)}' '${escapeSingleQuoted(desktopManagerPath())}' desktop '${escapeSingleQuoted(slug)}'`,
     "",

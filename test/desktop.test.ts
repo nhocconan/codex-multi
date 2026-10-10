@@ -165,9 +165,10 @@ describe("bundle content generation", () => {
     const { stdout } = await promisify(execFile)("/bin/sh", [executable], { env: {
       ...process.env, OPENAI_API_KEY: "fake", CODEX_ACCESS_TOKEN: "fake", OPENAI_ORG_ID: "fake", OPENAI_PROJECT_ID: "fake",
       CODEX_HOME: "/wrong/home", CODEX_ELECTRON_USER_DATA_PATH: "/wrong/data", CODEX_MULTI_HOME: "/wrong/registry",
+      CODEX_MULTI_DESKTOP_APP: "/wrong/app",
     } });
     expect(JSON.parse(stdout)).toEqual({ args: ["desktop", "work"], authPresent: false, ambientDesktopPresent: false,
-      home: join(root, "state"), app: "/Applications/Codex 'Work'.app" });
+      home: join(root, "state") });
   });
   it("escapes XML specials in the plist", () => {
     const plist = desktopInfoPlist('Bad <"&\'> Name', "work", "blue");
@@ -302,6 +303,8 @@ describe("alias installation", () => {
     expect(script).toContain(`CODEX_HOME='${join(root, "state", "profiles", "work")}'`);
     expect(script).toContain(`DATA_DIR='${desktopUserDataDir("work")}'`);
     expect(script).toContain(`APP_PATH='${fakeAppPath}'`);
+    expect(script.split("\n").find((line) => line.startsWith("unset "))).toContain("CODEX_MULTI_DESKTOP_APP");
+    expect(script).not.toContain("export CODEX_MULTI_DESKTOP_APP=");
 
     const icon = await fs.readFile(join(bundle, "Contents", "Resources", "AppIcon.icns"), "utf8");
     expect(icon).toBe("fake-icon");

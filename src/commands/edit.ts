@@ -153,7 +153,12 @@ async function editLocked(
     process.stderr.write(`warning: launcher already exists and was not replaced: ${conflict}\n`);
   }
   if (desktopWasEnabled && nextSlug !== current.slug) {
-    await removeDesktopAliases(current.slug).catch(() => {});
+    await removeDesktopAliases(current.slug).catch((error: unknown) => {
+      process.stderr.write(
+        `warning: desktop alias cleanup for old profile ${current.slug} failed: ${(error as Error).message}\n` +
+          `Run "cpm sync" to remove the stale alias.\n`,
+      );
+    });
   }
   if (desktopEnabled) {
     try {

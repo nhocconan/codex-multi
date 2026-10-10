@@ -66,4 +66,26 @@ describe("interactive profile management", () => {
     expect(mocks.setDesktopEnabled).toHaveBeenCalledWith("student", true, {});
     expect(mocks.select.mock.calls[2]?.[0]).toContain("Desktop app alias: off");
   });
+
+  it.each([
+    ["ChatGPT Student", undefined],
+    ["My Study App", "My Study App"],
+  ])("preserves automatic naming or a custom desktop name from %s", async (answer, expectedAliasName) => {
+    mocks.load.mockResolvedValue([profile]);
+    mocks.select
+      .mockResolvedValueOnce({ ok: true, index: 3 })
+      .mockResolvedValueOnce({ ok: true, index: 0 })
+      .mockResolvedValueOnce({ ok: true, index: 2 })
+      .mockResolvedValueOnce({ ok: false });
+    mocks.promptLine
+      .mockResolvedValueOnce(answer)
+      .mockResolvedValueOnce("blue");
+
+    await expect(run()).resolves.toBe(0);
+    expect(mocks.promptLine).toHaveBeenNthCalledWith(1, "Desktop alias name", "ChatGPT Student");
+    expect(mocks.setDesktopEnabled).toHaveBeenCalledWith("student", true, {
+      aliasName: expectedAliasName,
+      color: "blue",
+    });
+  });
 });

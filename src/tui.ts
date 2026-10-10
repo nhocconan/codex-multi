@@ -84,7 +84,7 @@ async function toggleDesktop(slug: string, currentlyOn: boolean): Promise<void> 
     "auto",
   );
   await setDesktopEnabled(slug, true, {
-    aliasName: aliasName || undefined,
+    aliasName: aliasName && aliasName !== defaultName ? aliasName : undefined,
     color: color || undefined,
   });
 }

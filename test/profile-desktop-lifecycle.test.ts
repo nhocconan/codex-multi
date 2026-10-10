@@ -181,6 +181,33 @@ describe("desktop registry updates", () => {
 });
 
 describe("profile desktop data rename", () => {
+  it("warns about stale old aliases when cleanup fails after a committed rename", async () => {
+    await seedProfile(true);
+    await seedDesktop();
+    await setDesktopEnabledLocked("work", true);
+    const removeAliases = desktopCore.removeDesktopAliases;
+    vi.spyOn(desktopCore, "removeDesktopAliases").mockImplementation(async (slug) => {
+      if (slug === "work") throw new Error("alias removal denied");
+      return await removeAliases(slug);
+    });
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+
+    await edit("work", { name: "Job", slug: "job" });
+
+    expect(await findRegistered("work")).toBeUndefined();
+    expect(await findRegistered("job")).toMatchObject({ label: "Job" });
+    expect(await fs.readFile(join(desktopUserDataDir("job"), "session.txt"), "utf8"))
+      .toBe("work private session");
+    expect(await readPlistValues(join(desktopAliasPath("Codex Job"), "Contents", "Info.plist")))
+      .toMatchObject({ CodexMultiSlug: "job" });
+    expect(await readPlistValues(join(desktopAliasPath("Codex Work"), "Contents", "Info.plist")))
+      .toMatchObject({ CodexMultiSlug: "work" });
+    const warning = stderr.mock.calls.map(([message]) => String(message)).join("");
+    expect(warning).toContain("old profile work");
+    expect(warning).toContain("alias removal denied");
+    expect(warning).toContain('Run "cpm sync"');
+  });
+
   it("moves existing desktop data for a disabled profile", async () => {
     await seedProfile();
     await seedDesktop();

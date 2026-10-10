@@ -43,6 +43,16 @@ afterEach(async () => {
 });
 
 describe("official app launch boundary", () => {
+  it("discovers the installed app when a registered app path is stale", async () => {
+    const installed = (profile.desktop as { appPath: string }).appPath;
+    await fs.writeFile(join(installed, "Contents", "Info.plist"),
+      '<plist><dict><key>CFBundleName</key><string>Codex</string></dict></plist>');
+    vi.stubEnv("CODEX_MULTI_DESKTOP_APP", installed);
+    (profile.desktop as { appPath: string }).appPath = join(root, "Missing.app");
+    await launchDesktop(profile);
+    expect(execMock.mock.calls.find(([file]) => file === "/usr/bin/open")![1][1]).toBe(installed);
+  });
+
   it("passes exact isolated paths and clears Codex auth without dropping custom MCP environment", async () => {
     await launchDesktop(profile);
     const [file, args, options] = execMock.mock.calls[0]!;
