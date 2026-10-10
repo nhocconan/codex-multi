@@ -8,6 +8,21 @@
 - Never print, log, or store auth contents in the profile registry.
 - Only remove launchers containing this project's ownership marker.
 - Preserve unknown registry fields and evolving `auth.json` fields where possible.
+- Desktop aliases launch the official desktop app unmodified, with the
+  profile's `CODEX_HOME` and a per-profile Electron user data dir; never
+  modify the official app bundle or register the `codex:` URL scheme.
+- Only touch `.app` alias bundles whose `Info.plist` carries this project's
+  `CodexMultiSlug` marker; never replace a foreign app of the same name.
+- An alias target must belong to the same slug and manager data root. Serialize
+  bundle writes, finish staging before replacing existing aliases, and preserve
+  original bundles when rollback cannot complete.
+- Desktop launches must serialize with profile mutation, and active desktop
+  profiles must block credential replacement, slug rename, and removal.
+- Desktop launchers must not inherit ambient `CODEX_HOME`,
+  `CODEX_ELECTRON_USER_DATA_PATH`, or auth environment variables.
+- Alias icons are derived from the installed app's own icon at install time;
+  never bundle third-party artwork, and always fall back to the original icon
+  when badge rendering fails.
 
 ## Cross-platform tests
 

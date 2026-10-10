@@ -2,6 +2,67 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+## [0.3.0] - 2026-10-10
+
+### Fixed
+
+- Refuse alias collisions across profiles and manager roots; serialize bundle
+  installation and keep previous bundles until a replacement commits.
+- Restore aliases and desktop data when registry or filesystem updates fail,
+  including renames of profiles whose desktop alias is disabled.
+- Preserve unknown desktop registry fields and honor separated state during login.
+- Block login, command-suffix rename, and removal while a profile's desktop
+  instance runs; serialize alias launches with profile mutations.
+- Scrub ambient credentials in alias launchers, refresh configuration before
+  launching, and keep a bundled runtime independent of temporary npx caches.
+- Escape names beginning with XML markup and fall back to the original icon
+  for malformed PNG members. Enlarge badge colors and improve transparent edges.
+- Correct the non-macOS guard test and add regression coverage for failures,
+  ownership, concurrency, credential isolation, and desktop lifecycle handling.
+
+### Added
+
+- README guide for enabling desktop aliases on existing profiles through the
+  latest npx release, with launch, verification, and refresh commands.
+- App integration guide clarifying shared plugins/MCP configuration and
+  browser callback limitations; regression tests for the native launch boundary.
+
+- Desktop app aliases (macOS): `cpm add --desktop` installs a per-profile
+  alias app in `~/Applications` (named `<App> <Label>`, e.g. "ChatGPT Work")
+  that opens the unmodified official desktop app with the profile's
+  `CODEX_HOME` and its own app data directory, so multiple desktop instances
+  run side by side, each signed into its own account. Spotlight, Raycast, and
+  Dock pinning work.
+- Distinct per-profile alias icons: each alias icon is the official app icon
+  with a color badge (stable per-slug assignment; override with
+  `--desktop-color`, revert with `auto`, opt out with `none`). Badges render
+  locally from the app's own icon — no bundled artwork, no native image
+  libraries — and fall back to the original icon whenever rendering is
+  unavailable. Alias bundles record a `CodexMultiIcon` badge revision in their
+  `Info.plist`, so `cpm sync` rebuilds bundles whose icon style or color
+  changed and recreates bundles with a missing icon file.
+- `cpm desktop <slug>` opens a profile's isolated desktop instance directly.
+- `cpm edit <slug> --desktop / --no-desktop / --desktop-name / --desktop-color`
+  and a "Desktop app alias" toggle in the interactive manager.
+- `--separated` profile option to keep a profile's Codex state fully private
+  instead of sharing base history, projects, and skills.
+- `cpm sync`, `cpm doctor`, `cpm remove`, and `cpm list` now cover desktop
+  aliases (marker-gated; foreign apps are never touched).
+- `.codex-global-state.json` is private per profile so simultaneously running
+  desktop instances never fight over one UI-state file.
+
+### Changed
+
+- `cpm edit <slug> --desktop` now always refreshes the alias bundle (name,
+  icon, baked paths), even when nothing else changed.
+- `cpm edit <slug> --desktop-name ""` resets a custom alias name back to the
+  `<App> <Label>` default; the flag parser accepts explicitly empty values.
+- Profile edits that only change desktop state (`--desktop`, `--no-desktop`,
+  `--desktop-name`, `--desktop-color`) no longer prompt for the display name
+  and slug.
+
 ## [0.2.3] - 2026-09-30
 
 ### Fixed

@@ -1,6 +1,15 @@
-import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { existsSync, promises as fs } from "node:fs";
+import { basename, join } from "node:path";
 import { authFingerprint, inspectAuth } from "../core/auth.ts";
+import {
+  desktopAliasName,
+  desktopAliasPath,
+  desktopAppsDir,
+  desktopConfigOf,
+  desktopSupported,
+  isOwnedAliasBundle,
+  ownedAliasBundles,
+} from "../core/desktop.ts";
 import {
   baseCodexHome,
   launcherPath,
@@ -8,7 +17,7 @@ import {
   profileHome,
   resolveCodexBinary,
 } from "../core/paths.ts";
-import { command, load } from "../core/registry.ts";
+import { command, isSeparated, load } from "../core/registry.ts";
 import { launcherTargetDescription } from "../core/wrappers.ts";
 
 export async function doctor(): Promise<number> {
@@ -19,7 +28,9 @@ export async function doctor(): Promise<number> {
   console.log(`  Codex binary : ${resolveCodexBinary()}`);
   console.log(`  Base home    : ${baseCodexHome()}`);
   console.log(`  Profiles     : ${profiles.length}`);
-  console.log(`  Launchers    : ${launchersDir()} → ${launcherTargetDescription()}\n`);
+  console.log(`  Launchers    : ${launchersDir()} → ${launcherTargetDescription()}`);
+  if (desktopSupported()) console.log(`  Desktop dir  : ${desktopAppsDir()}`);
+  console.log();
 
   if (profiles.length === 0) {
     console.log("No profiles configured. Run: cpm add");
@@ -47,7 +58,7 @@ export async function doctor(): Promise<number> {
     try {
       const homeEntries = await fs.readdir(home);
       for (const name of homeEntries) {
-        if (!name.endsWith(".sqlite")) continue;
+        if (!name.endsWith(".sqlite") || isSeparated(profile)) continue;
         const entryPath = join(home, name);
         const stat = await fs.lstat(entryPath);
         if (!stat.isSymbolicLink()) {
@@ -81,6 +92,23 @@ export async function doctor(): Promise<number> {
       console.log("    launcher : missing");
       errors.push(`${profile.label}: launcher is missing; run cpm sync`);
     }
+    const desktop = desktopConfigOf(profile);
+    if (desktop?.enabled) {
+      const alias = desktopAliasName(profile, { name: desktop.appName });
+      const target = desktopAliasPath(alias);
+      let problem: string | undefined;
+      if (!existsSync(target)) {
+        problem = "alias bundle is missing; run cpm sync";
+      } else if (!(await isOwnedAliasBundle(target, profile.slug))) {
+        problem = `${target} is owned by another app; choose a different name`;
+      } else if (!existsSync(desktop.appPath)) {
+        problem = `desktop app not found at ${desktop.appPath}; run "cpm edit ${profile.slug} --desktop" to refresh`;
+      }
+      console.log(`    desktop  : ${alias}${problem ? ` — ${problem}` : ""}`);
+      if (problem) errors.push(`${profile.label}: ${problem}`);
+    } else {
+      console.log("    desktop  : off");
+    }
     const fingerprint = await authFingerprint(profile.slug);
     if (fingerprint) {
       const owner = fingerprintOwners.get(fingerprint);
@@ -91,6 +119,18 @@ export async function doctor(): Promise<number> {
       }
     }
     console.log();
+  }
+
+  if (desktopSupported()) {
+    const wanted = new Set(
+      profiles.filter((p) => desktopConfigOf(p)?.enabled).map((p) => p.slug),
+    );
+    for (const owned of await ownedAliasBundles()) {
+      if (wanted.has(owned.slug)) continue;
+      warnings.push(
+        `desktop alias ${basename(owned.path)} (${owned.slug}) is not wanted by any enabled profile; run cpm sync`,
+      );
+    }
   }
 
   if (errors.length === 0 && warnings.length === 0) {

@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { add } from "./commands/add.ts";
+import { desktop as desktopCommand, setDesktopEnabled } from "./commands/desktop.ts";
 import { doctor } from "./commands/doctor.ts";
 import { edit } from "./commands/edit.ts";
 import { launch } from "./commands/launch.ts";
@@ -47,6 +48,18 @@ export async function main(argv = process.argv): Promise<number> {
     if (!slug) throw new Error(`usage: cpm ${subcommand} <slug> [-- codex args...]`);
     return await launch(slug, rest.slice(1));
   }
+  if (subcommand === "desktop") {
+    const slug = rest[0];
+    if (!slug) throw new Error(`usage: cpm desktop <slug>`);
+    await desktopCommand(slug);
+    return 0;
+  }
+  if (subcommand === "desktop-on" || subcommand === "desktop-off") {
+    const slug = rest[0];
+    if (!slug) throw new Error(`usage: cpm ${subcommand} <slug>`);
+    await setDesktopEnabled(slug, subcommand === "desktop-on");
+    return 0;
+  }
 
   const flags = parseFlags(rest);
   if (subcommand === "add" || subcommand === "import") {
@@ -61,6 +74,14 @@ export async function main(argv = process.argv): Promise<number> {
       ...(subcommand === "import" || hasFlag(flags, "import-current")
         ? { importCurrent: true }
         : {}),
+      ...(hasFlag(flags, "desktop") ? { desktop: true } : {}),
+      ...(flags.values.has("desktop-name")
+        ? { desktopName: flagValue(flags, "desktop-name") }
+        : {}),
+      ...(flags.values.has("desktop-color")
+        ? { desktopColor: flagValue(flags, "desktop-color") }
+        : {}),
+      ...(hasFlag(flags, "separated") ? { separated: true } : {}),
     });
     return 0;
   }
@@ -82,6 +103,14 @@ export async function main(argv = process.argv): Promise<number> {
     await edit(slug, {
       ...(flagValue(flags, "name", "n") ? { name: flagValue(flags, "name", "n") } : {}),
       ...(flagValue(flags, "slug", "s") ? { slug: flagValue(flags, "slug", "s") } : {}),
+      ...(hasFlag(flags, "desktop") ? { desktop: true } : {}),
+      ...(hasFlag(flags, "no-desktop") ? { noDesktop: true } : {}),
+      ...(flags.values.has("desktop-name")
+        ? { desktopName: flagValue(flags, "desktop-name") }
+        : {}),
+      ...(flags.values.has("desktop-color")
+        ? { desktopColor: flagValue(flags, "desktop-color") }
+        : {}),
     });
     return 0;
   }
@@ -94,7 +123,15 @@ export async function main(argv = process.argv): Promise<number> {
   throw new Error(`unknown command: ${subcommand}\nRun: cpm --help`);
 }
 
-const BOOLEAN_FLAGS = new Set(["device-auth", "import-current", "yes", "y"]);
+const BOOLEAN_FLAGS = new Set([
+  "device-auth",
+  "import-current",
+  "yes",
+  "y",
+  "desktop",
+  "no-desktop",
+  "separated",
+]);
 
 export function parseFlags(args: string[]): Flags {
   const positionals: string[] = [];
@@ -121,7 +158,9 @@ export function parseFlags(args: string[]): Flags {
       continue;
     }
     const value = args[index + 1];
-    if (!value || value.startsWith("-")) throw new Error(`missing value for ${arg}`);
+    if (value === undefined || value.startsWith("-")) {
+      throw new Error(`missing value for ${arg}`);
+    }
     values.set(normalized, value);
     index++;
   }
@@ -152,6 +191,7 @@ Usage:
   cpm list                         List profiles and login status
   cpm launch <slug> [-- args...]   Launch a profile
   cpm use <slug> [-- args...]      Alias for launch
+  cpm desktop <slug>               Open a profile in the Codex desktop app (macOS)
   cpm login <slug> [options]       Sign in again (rollback on failure)
   cpm edit <slug> [options]        Rename a profile or launcher
   cpm remove <slug> [--yes]        Delete a profile and its isolated auth
@@ -164,10 +204,21 @@ Profile options:
   --device-auth                    Use Codex device-code login
   --api-key-env <NAME>             Read API key from an environment variable
   --access-token-env <NAME>        Read access token from an environment variable
+  --desktop                        Also add a desktop app alias (macOS)
+  --desktop-name <name>            Custom desktop alias name
+  --desktop-color <color>          Alias icon badge color (auto|none|red|orange|yellow|
+                                   green|teal|blue|purple|pink|cyan|lime)
+  --separated                      Keep this profile's Codex state fully private
+
+Edit options:
+  --desktop / --no-desktop         Enable or remove the desktop app alias
+  --desktop-name <name>            Rename the desktop app alias ("" resets to default)
+  --desktop-color <color>          Change the alias icon badge color
 
 Examples:
   npx codex-multi add --name Personal --slug personal
   npx codex-multi add --name Work --slug work --device-auth
+  npx codex-multi add --name Work --slug work --desktop
   codex-personal
   codex-work exec "review this repository"
 `);

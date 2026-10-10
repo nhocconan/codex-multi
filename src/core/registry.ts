@@ -20,6 +20,11 @@ export function command(profile: Profile): string {
   return launcherName(profile.slug);
 }
 
+/** Separated profiles keep all Codex state private instead of sharing base data. */
+export function isSeparated(profile: Profile): boolean {
+  return (profile as { separated?: unknown }).separated === true;
+}
+
 export function validSlug(slug: string): boolean {
   return slug !== "multi" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
 }
