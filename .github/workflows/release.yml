@@ -3,6 +3,12 @@ name: Publish to npm
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to publish
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
@@ -24,15 +32,23 @@ jobs:
       - run: npm run verify
       - run: npm pack --dry-run
       - name: Verify release tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
         run: |
           EXPECTED_TAG="v$(node -p "require('./package.json').version")"
-          test "$GITHUB_REF_NAME" = "$EXPECTED_TAG"
+          test "$RELEASE_TAG" = "$EXPECTED_TAG"
       - name: Publish package
         run: |
           PACKAGE_SPEC="$(node -p "const p=require('./package.json'); p.name+'@'+p.version")"
           if npm view "$PACKAGE_SPEC" version >/dev/null 2>&1; then
             echo "$PACKAGE_SPEC is already published"
             exit 0
+          fi
+          # setup-node writes a token placeholder even when no secret exists.
+          # Remove that auth configuration so npm can negotiate OIDC instead.
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            unset NODE_AUTH_TOKEN
+            printf 'registry=https://registry.npmjs.org/\n' > "$NPM_CONFIG_USERCONFIG"
           fi
           npm publish --access public --provenance
         env:
