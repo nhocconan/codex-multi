@@ -4,7 +4,7 @@ import { inspectAuth, recoverAuthBackup } from "./auth.ts";
 import { withFileLock } from "./lock.ts";
 import { buildProfileHome } from "./profile-home.ts";
 import { profileHome, profileLifecycleLockPath, resolveCodexBinary } from "./paths.ts";
-import type { Profile } from "./registry.ts";
+import { isSeparated, type Profile } from "./registry.ts";
 
 const SCRUBBED_AUTH_VARS = new Set([
   "CODEX_ACCESS_TOKEN",
@@ -36,7 +36,7 @@ export async function launch(profile: Profile, args: string[]): Promise<number> 
         `${profile.label} is not logged in (${auth.problem ?? "invalid auth"}). Run: cpm login ${profile.slug}`,
       );
     }
-    await buildProfileHome(profile.slug);
+    await buildProfileHome(profile.slug, isSeparated(profile));
     return await runCodex(profile, home, args);
   });
 }

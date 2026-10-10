@@ -31,6 +31,12 @@ Different profiles run concurrently. A single profile is lifecycle-locked
 while its Codex process is active so login, rename, or removal cannot replace
 credentials underneath that process.
 
+On macOS, profiles can also run side by side in the **Codex desktop app**
+(the ChatGPT desktop app with Codex built in): `cpm add --desktop` installs a
+Spotlight-findable alias app per profile — its own name, its own color-badged
+icon, its own sign-in — while chats and shared Codex state keep working exactly
+as above. See [Desktop app aliases (macOS)](#desktop-app-aliases-macos).
+
 ## Install skills once, use them everywhere
 
 Your Codex skills stay in the normal `~/.codex/skills` directory. Codex Multi
@@ -62,8 +68,8 @@ codex-personal
 
 Launchers created from an npx run pin the manager version that created them,
 so they keep working after npm clears its temporary cache without silently
-adopting future code. Run `npx codex-multi sync` with a newer release to upgrade
-them.
+adopting future code. Run `npx --yes --package=codex-multi@latest codex-multi sync` to upgrade
+them to the latest release.
 
 ### Global install
 
@@ -103,6 +109,9 @@ cpm add --name Work --slug work --device-auth
 # Import the login already stored in ~/.codex/auth.json
 cpm import --name Current --slug current
 
+# Create a profile that also gets a macOS desktop app alias
+cpm add --name Work --slug work --desktop
+
 # See all launchers
 cpm list
 
@@ -135,11 +144,12 @@ removed a profile, `cpm add --name Student --slug student` can reuse its slug.
 | `cpm list` | Show profiles and safe login metadata |
 | `cpm launch <slug>` | Launch a profile and pass all remaining args to Codex |
 | `cpm use <slug>` | Alias for `launch` |
+| `cpm desktop <slug>` | Open a profile in an isolated Codex desktop app instance (macOS) |
 | `cpm login <slug>` | Replace a login; restores the old one if login fails |
-| `cpm edit <slug>` | Change the label or `codex-<slug>` command |
-| `cpm remove <slug>` | Delete one profile and its isolated credentials |
-| `cpm sync` | Rebuild profile config and launcher scripts |
-| `cpm doctor` | Audit auth, isolation, duplicate credentials, and launchers |
+| `cpm edit <slug>` | Change the label or `codex-<slug>` command; `--desktop/--no-desktop/--desktop-name/--desktop-color` |
+| `cpm remove <slug>` | Delete one profile, its isolated credentials, and its desktop alias |
+| `cpm sync` | Rebuild profile config, launcher scripts, and desktop aliases |
+| `cpm doctor` | Audit auth, isolation, duplicate credentials, launchers, and aliases |
 
 Common options:
 
@@ -149,6 +159,10 @@ Common options:
 --device-auth
 --api-key-env <ENV_NAME>
 --access-token-env <ENV_NAME>
+--desktop                 also install a desktop app alias (macOS)
+--desktop-name <name>     custom alias name, e.g. "Codex Job"
+--desktop-color <color>   alias icon badge color (auto|none|red|orange|…)
+--separated               keep this profile's Codex state fully private
 ```
 
 Secrets are deliberately accepted through environment variable names instead
@@ -169,16 +183,18 @@ Codex Multi uses that supported boundary:
 ```text
 ~/.config/codex-multi/
 ├── profiles.json
-└── profiles/
-    ├── personal/
-    │   ├── auth.json       real file: Personal credentials
-    │   ├── config.toml     regenerated config, credential store forced to file
-    │   ├── skills -> ~/.codex/skills
-    │   ├── sessions -> ~/.codex/sessions
-    │   └── ...             other non-auth state shared from ~/.codex
-    └── work/
-        ├── auth.json       real file: Work credentials
-        └── ...
+├── profiles/
+│   ├── personal/
+│   │   ├── auth.json       real file: Personal credentials
+│   │   ├── config.toml     regenerated config, credential store forced to file
+│   │   ├── skills -> ~/.codex/skills
+│   │   ├── sessions -> ~/.codex/sessions
+│   │   └── ...             other non-auth state shared from ~/.codex
+│   └── work/
+│       ├── auth.json       real file: Work credentials
+│       └── ...
+└── desktop/
+    └── work/               per-profile desktop app data (macOS aliases)
 
 ~/.local/bin/
 ├── codex-personal
@@ -202,6 +218,158 @@ labels and slugs only—never tokens.
 
 See OpenAI’s [Codex authentication documentation](https://developers.openai.com/codex/auth)
 for the credential-storage contract and security guidance.
+
+## Desktop app aliases (macOS)
+
+Profiles can also open in the official Codex desktop app (the ChatGPT desktop
+app with Codex built in, or a standalone Codex.app) side by side, each signed
+into its own account:
+
+```bash
+# While creating a profile
+cpm add --name Work --slug work --desktop
+
+# Or later / from the interactive "Manage profiles" menu
+cpm edit work --desktop
+cpm edit work --desktop-name "Codex Job"
+cpm edit work --no-desktop
+
+# Straight from the terminal
+cpm desktop work
+```
+
+### Enable desktop for an existing profile
+
+On macOS, install the official Codex desktop app first. You can reuse a profile
+already registered with Codex Multi; adding its desktop alias keeps its existing
+credentials and does not require creating the profile again.
+
+```bash
+# Get the latest manager and refresh existing launchers/aliases
+npx --yes --package=codex-multi@latest codex-multi sync
+
+# Find the existing profile's slug (the suffix in codex-<slug>)
+npx --yes --package=codex-multi@latest codex-multi list
+
+# Replace work with your existing slug; optionally choose a name and color
+npx --yes --package=codex-multi@latest codex-multi edit work --desktop \
+  --desktop-name "Codex Work" --desktop-color blue
+
+# Open it immediately, then check the installation
+npx --yes --package=codex-multi@latest codex-multi desktop work
+npx --yes --package=codex-multi@latest codex-multi doctor
+```
+
+Find **Codex Work** in Spotlight or `~/Applications` for subsequent launches.
+With a global install, the equivalent enable command is `cpm edit work --desktop`.
+Run the enable command once for each existing profile you want in the desktop app;
+use a different alias name for each. To remove only the alias, run
+`cpm edit work --no-desktop` (or the same `npx` invocation with `edit work --no-desktop`);
+the profile and its credentials remain available.
+
+If detection fails, set `CODEX_MULTI_DESKTOP_APP` to the installed `.app` path
+when running the enable command. If a CLI session holds the profile lock, exit
+that session before enabling or refreshing its alias. After a manager update,
+run the latest `sync` command above on each machine to refresh its launchers.
+
+Each profile gets an alias app in `~/Applications`, named after the detected
+desktop app plus the profile label (e.g. **ChatGPT Work**, **ChatGPT Teacher**).
+Spotlight or Raycast finds it, and you can pin it to the Dock. Every alias
+icon is the app's own icon with a **color badge** in the corner, so profiles
+are distinguishable at a glance; the color is assigned per profile (stable,
+derived from the slug) and can be chosen explicitly:
+
+```bash
+cpm edit work --desktop-color blue     # red orange yellow green teal blue
+                                         # purple pink cyan lime — or none
+cpm edit work --desktop-color auto     # back to the per-slug default
+```
+
+Under the hood each alias launches the unmodified desktop app with the
+profile's `CODEX_HOME` and its own app data directory, so sign-in sessions,
+window state, and credentials stay per profile while Codex history, projects,
+skills, and config remain shared from `~/.codex` — chats themselves are
+cloud-synced per account. The desktop app's UI-state file stays private per
+profile so simultaneous instances never conflict. Opening the same alias twice
+just focuses the running instance.
+
+Aliases use a private, fully bundled manager runtime under
+`~/.config/codex-multi/runtime`, so they continue working if an `npx` cache is
+removed. They use the Node executable available when installed; run `cpm sync`
+after moving or removing that Node installation. Each alias refreshes the
+profile's shared config before launching and clears ambient auth variables.
+Quit a profile's desktop instance before signing in again, renaming its command
+suffix, or removing it. Alias names and colors can be refreshed while it runs.
+
+Aliases carry an ownership marker in their bundle `Info.plist`; `cpm` only ever
+touches its own bundles and never replaces a foreign app of the same name.
+An alias owned by another profile or manager data root is also a conflict.
+`cpm remove` deletes the alias and its desktop app data; `cpm sync` and
+`cpm doctor` keep aliases consistent with the registry.
+
+One macOS limit to know: while profile instances are **running**, their windows
+group under the original app's Dock/⌘-Tab icon — macOS identifies running apps
+by their signed bundle, and separating those would require modifying or
+re-signing copies of the official app. The distinct icons and names apply where
+you pick the profile: Spotlight, Raycast, Launchpad, and pinned Dock aliases.
+The larger color badges distinguish these aliases; they do not change the
+official app's running Dock icons. Connector OAuth callbacks using the
+`codex:` scheme can still reach the default app instance; this tool does not
+register a callback chooser by default. Enable the optional router below to
+choose which running profile receives browser approvals.
+
+### Apps, plugins, and browser approvals
+
+Shared profiles reuse the base Codex skills, plugins, and MCP configuration.
+A new `--separated` profile keeps those files private, while its managed
+`config.toml` still mirrors the base configuration. Custom MCP servers that use
+credentials from your shell environment keep their own authentication behavior;
+Codex Multi isolates Codex login credentials, not every third-party environment
+variable.
+
+Enable callback routing once on macOS before connecting apps in separate profiles:
+
+```bash
+npx --yes --package=codex-multi@latest codex-multi callback-router enable
+npx --yes --package=codex-multi@latest codex-multi callback-router status
+```
+
+This installs a small local helper and a user LaunchAgent. It registers the
+`codex:` URL handler and keeps that registration active while enabled, because
+the official app may reclaim it when starting. The official app remains
+unchanged. The helper compiles locally using Apple Command Line Tools; if they
+are missing, run `xcode-select --install` and retry. macOS may ask for Automation
+permission to send the approval to Codex.
+
+For Gmail, Google Drive, GitHub, Figma, or another browser-based connector:
+
+1. Open the intended profile and start its connection in the official app.
+2. Check the browser is signed into the service account you want, then approve.
+3. In **Choose the Codex profile for this callback**, explicitly select that
+   same running profile and continue. There is no default selection.
+4. Confirm the connection appears in that profile. Repeat independently for
+   another account or a separated profile.
+
+Only running apps are offered. If an app closes before delivery, the router
+reports failure; it never sends the approval to another account. Approval URLs
+stay in memory and are never written to disk or passed to subprocesses.
+
+To stop routing and restore the previous URL handler:
+
+```bash
+npx --yes --package=codex-multi@latest codex-multi callback-router disable
+```
+
+With routing off, callbacks use the default official app instance and may reach
+a different profile. Existing connections remain managed by the official app.
+Each connector still requires its own service approval and account validation.
+
+If you want a profile whose Codex state is **not** shared at all (private
+history, projects, and sessions), create it with `--separated`:
+
+```bash
+cpm add --name Lab --slug lab --separated
+```
 
 ## Importing the current account
 
@@ -227,16 +395,21 @@ These are useful for testing or nonstandard installations:
 | `CODEX_MULTI_BASE_HOME` | Shared base Codex home (default `~/.codex`) |
 | `CODEX_MULTI_BIN_DIR` | Launcher directory |
 | `CODEX_MULTI_CODEX_BIN` | Exact Codex executable |
+| `CODEX_MULTI_DESKTOP_APP` | Path to the desktop `.app` bundle |
+| `CODEX_MULTI_APPS_DIR` | Directory for desktop aliases (default `~/Applications`) |
 
 ## Design boundaries
 
-- This tool manages Codex CLI accounts. It does not switch the desktop app.
+- This tool manages Codex accounts for the CLI and launches the official
+  desktop app with per-profile data. It never modifies the desktop app itself
+  and never copies credentials into the base `~/.codex/auth.json`.
 - Codex configuration profiles selected by `codex --profile` customize model
   and sandbox settings; they are separate from the account profiles managed
   here.
-- Non-auth Codex state is intentionally shared. If you need fully isolated
-  histories and plugins, set up separate `CODEX_HOME` directories directly.
-- Launchers never replace an unrelated existing `codex-<slug>` file. `cpm
+- Non-auth Codex state is intentionally shared across profiles. Use
+  `cpm add --separated` when a profile needs fully isolated histories and
+  plugins.
+- Launchers and desktop aliases never replace unrelated existing files. `cpm
   doctor` reports the collision.
 
 ## Development
@@ -250,8 +423,9 @@ npm pack --dry-run
 ```
 
 The published CLI keeps its runtime surface small: `cross-spawn` safely runs
-Codex’s Windows `.cmd` shim, and `proper-lockfile` protects profile lifecycle
-operations across processes and recovers stale locks after crashes.
+Codex’s Windows `.cmd` shim, `proper-lockfile` protects profile lifecycle
+operations across processes and recovers stale locks after crashes, and the
+dependency-free `pngjs` recolors alias icons without native image libraries.
 
 ## License
 

@@ -15,12 +15,17 @@ import { copyCurrentAuth, inspectAuth } from "../core/auth.ts";
 import { withFileLock } from "../core/lock.ts";
 import { login, type LoginOptions } from "../core/login.ts";
 import { syncLaunchers } from "../core/wrappers.ts";
+import { setDesktopEnabledLocked } from "./desktop.ts";
 import { promptLine } from "../ui.ts";
 
 export interface AddOptions extends LoginOptions {
   name?: string | undefined;
   slug?: string | undefined;
   importCurrent?: boolean | undefined;
+  desktop?: boolean | undefined;
+  desktopName?: string | undefined;
+  desktopColor?: string | undefined;
+  separated?: boolean | undefined;
 }
 
 export async function add(options: AddOptions = {}): Promise<void> {
@@ -54,8 +59,13 @@ async function addLocked(label: string, slug: string, options: AddOptions): Prom
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
-  const profile: Profile = { slug, label, createdAt: new Date().toISOString() };
-  await buildProfileHome(slug);
+  const profile: Profile = {
+    slug,
+    label,
+    createdAt: new Date().toISOString(),
+    ...(options.separated ? { separated: true } : {}),
+  };
+  await buildProfileHome(slug, options.separated === true);
   let committed = false;
   try {
     if (options.importCurrent) {
@@ -82,6 +92,19 @@ async function addLocked(label: string, slug: string, options: AddOptions): Prom
         `warning: profile was saved but its launcher could not be created: ${(error as Error).message}\n` +
           `Run "cpm sync" after fixing the launcher directory.\n`,
       );
+    }
+    if (options.desktop) {
+      try {
+        await setDesktopEnabledLocked(slug, true, {
+          aliasName: options.desktopName,
+          color: options.desktopColor,
+        });
+      } catch (error) {
+        process.stderr.write(
+          `warning: profile was saved but its desktop alias could not be created: ${(error as Error).message}\n` +
+            `Run "cpm edit ${slug} --desktop" after fixing it.\n`,
+        );
+      }
     }
     console.log(`\nAdded ${label}. Launch it with: codex-${slug}`);
   } catch (error) {

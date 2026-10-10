@@ -2,9 +2,10 @@ import { promises as fs } from "node:fs";
 import spawn from "cross-spawn";
 import { authBackupPath, authPath, inspectAuth, recoverAuthBackup } from "./auth.ts";
 import { withFileLock } from "./lock.ts";
+import { assertDesktopStopped } from "./desktop-runtime.ts";
 import { buildProfileHome } from "./profile-home.ts";
 import { profileHome, profileLifecycleLockPath, resolveCodexBinary } from "./paths.ts";
-import type { Profile } from "./registry.ts";
+import { isSeparated, type Profile } from "./registry.ts";
 
 export interface LoginOptions {
   deviceAuth?: boolean | undefined;
@@ -19,13 +20,14 @@ export async function login(profile: Profile, options: LoginOptions = {}): Promi
   const home = profileHome(profile.slug);
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
   await withFileLock(profileLifecycleLockPath(profile.slug), async () => {
+    await assertDesktopStopped(profile.slug);
     await recoverAuthBackup(profile.slug);
     await loginLocked(profile, options);
   });
 }
 
 async function loginLocked(profile: Profile, options: LoginOptions): Promise<void> {
-  const home = await buildProfileHome(profile.slug);
+  const home = await buildProfileHome(profile.slug, isSeparated(profile));
   const auth = authPath(profile.slug);
   const backup = authBackupPath(profile.slug);
   let hadPrevious = false;

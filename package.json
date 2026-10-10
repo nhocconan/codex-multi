@@ -1,6 +1,6 @@
 {
   "name": "codex-multi",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Run multiple Codex accounts with isolated logins, memorable aliases, and one shared skills setup.",
   "license": "MIT",
   "author": "Tien Le",
@@ -54,6 +54,7 @@
   "devDependencies": {
     "@types/cross-spawn": "6.0.6",
     "@types/node": "^22.20.4",
+    "@types/pngjs": "^6.0.5",
     "@types/proper-lockfile": "4.1.4",
     "tsup": "^8.3.5",
     "tsx": "^4.23.15",
@@ -66,6 +67,7 @@
   },
   "dependencies": {
     "cross-spawn": "7.0.6",
+    "pngjs": "^7.0.0",
     "proper-lockfile": "4.1.2"
   }
 }

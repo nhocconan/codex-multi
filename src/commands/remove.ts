@@ -13,12 +13,18 @@ import {
 } from "../core/registry.ts";
 import { withFileLock } from "../core/lock.ts";
 import { removeLauncher, syncLaunchers } from "../core/wrappers.ts";
+import { desktopConfigOf, desktopSupported, desktopUserDataDir, removeDesktopAliases } from "../core/desktop.ts";
 import { confirm } from "../ui.ts";
+import { assertDesktopStopped } from "../core/desktop-runtime.ts";
 
 export async function remove(slug: string, yes = false): Promise<void> {
   const profile = await find(slug);
   if (!profile) throw new Error(`unknown profile: ${slug}`);
-  if (!yes && !(await confirm(`Remove ${profile.label} and its isolated login?`))) {
+  const desktopActive = desktopConfigOf(profile)?.enabled === true;
+  const question = desktopActive
+    ? `Remove ${profile.label}, its isolated login, and its desktop alias?`
+    : `Remove ${profile.label} and its isolated login?`;
+  if (!yes && !(await confirm(question))) {
     console.log("Kept.");
     return;
   }
@@ -27,6 +33,7 @@ export async function remove(slug: string, yes = false): Promise<void> {
       await recoverProfileRemovalLocked(slug);
       const current = await findRegistered(slug);
       if (!current) throw new Error(`unknown profile: ${slug}`);
+      await assertDesktopStopped(slug);
       await removeLocked(current);
     });
   });
@@ -57,6 +64,17 @@ async function removeLocked(profile: import("../core/registry.ts").Profile): Pro
       `profile was removed from the registry, but credential cleanup at ${tombstone} failed: ${(error as Error).message}. A later cpm command will retry it.`,
       { cause: error },
     );
+  }
+  if (desktopSupported()) {
+    try {
+      await removeDesktopAliases(slug);
+      await fs.rm(desktopUserDataDir(slug), { recursive: true, force: true });
+    } catch (error) {
+      process.stderr.write(
+        `warning: profile was removed but its desktop alias or app data could not be cleaned up: ${(error as Error).message}\n` +
+          `Run "cpm sync" to retry.\n`,
+      );
+    }
   }
   try {
     await syncLaunchers(await loadRegistered());

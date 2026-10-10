@@ -1,15 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { authPath } from "../src/core/auth.ts";
 import { login } from "../src/core/login.ts";
 import type { Profile } from "../src/core/registry.ts";
+import { assertDesktopStopped } from "../src/core/desktop-runtime.ts";
+
+vi.mock("../src/core/desktop-runtime.ts", () => ({ assertDesktopStopped: vi.fn() }));
 
 let root = "";
 let profile: Profile;
 
 beforeEach(async () => {
+  vi.mocked(assertDesktopStopped).mockReset();
   root = await fs.mkdtemp(join(tmpdir(), "cpm-login-"));
   process.env.CODEX_MULTI_BASE_HOME = join(root, "base");
   process.env.CODEX_MULTI_HOME = join(root, "manager");
@@ -98,6 +102,27 @@ describe("profile login", () => {
       login(profile, { apiKeyEnv: "CPM_TEST_API_KEY", accessTokenEnv: "CPM_TEST_ACCESS_TOKEN" }),
     ).rejects.toThrow("cannot be used together");
     await expect(fs.readFile(authPath("work"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("keeps separated state private while refreshing its login", async () => {
+    profile.separated = true;
+    await fs.mkdir(join(root, "base", "sessions"));
+    await fs.writeFile(join(root, "base", "history.jsonl"), "shared history");
+    await login(profile);
+    const home = join(root, "manager", "profiles", "work");
+    await expect(fs.lstat(join(home, "sessions"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.lstat(join(home, "history.jsonl"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await fs.lstat(authPath("work"))).isFile()).toBe(true);
+  });
+
+  it("refuses login before changing auth when the profile desktop is running", async () => {
+    await fs.mkdir(join(root, "manager", "profiles", "work"), { recursive: true });
+    const previous = JSON.stringify({ OPENAI_API_KEY: "fake-previous-key" });
+    await fs.writeFile(authPath("work"), previous);
+    vi.mocked(assertDesktopStopped).mockRejectedValue(new Error("Close desktop work first"));
+    await expect(login(profile)).rejects.toThrow("Close desktop work first");
+    expect(await fs.readFile(authPath("work"), "utf8")).toBe(previous);
+    await expect(fs.lstat(join(root, "login.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });
 

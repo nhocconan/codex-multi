@@ -18,6 +18,9 @@ const PRIVATE_NAMES = new Set([
 export function isPrivateName(name: string): boolean {
   if (PRIVATE_NAMES.has(name)) return true;
   if (/^auth\.json(?:[.-].+)?$/.test(name)) return true;
+  // Desktop app window/UI state; each profile keeps its own copy so
+  // simultaneously running desktop instances never fight over one file.
+  if (/^\.codex-global-state\.json(?:\.bak)?$/.test(name)) return true;
   if (name.endsWith(".lock") || name.endsWith(".sock")) return true;
   if (name.endsWith("-wal") || name.endsWith("-shm") || name.endsWith("-journal")) return true;
   if (name.endsWith(".tmp") || /\.tmp-[0-9a-zA-Z-]+$/.test(name)) return true;
@@ -27,9 +30,10 @@ export function isPrivateName(name: string): boolean {
 /**
  * Link all non-auth Codex state into a profile home. Existing real profile
  * files are preserved. This keeps config, skills, sessions, and plugins shared
- * while auth.json remains independently refreshable.
+ * while auth.json remains independently refreshable. A separated profile
+ * (`add --separated`) skips sharing and keeps all Codex state to itself.
  */
-export async function buildProfileHome(slug: string): Promise<string> {
+export async function buildProfileHome(slug: string, separated = false): Promise<string> {
   const base = baseCodexHome();
   const destination = profileHome(slug);
   await fs.mkdir(destination, { recursive: true, mode: 0o700 });
@@ -43,7 +47,7 @@ export async function buildProfileHome(slug: string): Promise<string> {
 
   const desired = new Set<string>();
   for (const entry of entries) {
-    if (isPrivateName(entry.name)) continue;
+    if (separated || isPrivateName(entry.name)) continue;
     desired.add(entry.name);
     const target = join(base, entry.name);
     const link = join(destination, entry.name);
