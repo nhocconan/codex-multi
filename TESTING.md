@@ -68,3 +68,16 @@ scrubbing, preservation of custom MCP environment, native open/startup failures,
 and absence of URL-scheme registration in alias bundles. Live connector OAuth
 approvals require verification in the intended account; they are not covered by
 the mocked launch tests.
+
+Callback-router tests cover opt-in installation, root ownership, foreign bundles
+and LaunchAgents, malformed saved state, exact-handler registration, rollback,
+missing-bundle recovery, and disable behavior. On macOS, native tests compile the
+Swift helper and run production URL/path/queue validators without changing the
+system handler. The installer explicitly targets macOS 12+; native registration
+is verified through effective URL routing before success is reported.
+
+Live smoke checks on macOS validated callback-handler enable/disable restoration,
+profile discovery for an existing and a throwaway separated profile, and private
+separated-home files. Real third-party approvals still require service consent
+and confirmation in the intended account; automated tests do not certify every
+connector's server behavior.

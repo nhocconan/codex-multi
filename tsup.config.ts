@@ -1,11 +1,14 @@
 import { defineConfig } from "tsup";
-import { readFileSync } from "node:fs";
+import { promises as fs, readFileSync } from "node:fs";
 
 const packageVersion = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"))
   .version as string;
 
 export default defineConfig({
   entry: ["src/cli.ts"],
+  onSuccess: async () => {
+    await fs.copyFile("native/macos/CallbackRouter.swift", "dist/CallbackRouter.swift");
+  },
   format: ["esm"],
   target: "node18",
   clean: true,

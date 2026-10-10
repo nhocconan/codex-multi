@@ -156,7 +156,7 @@ describe("assertDesktopStopped", () => {
 
 describe("waitForDesktopStartup", () => {
   it("returns immediately when the profile is already running", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     replyWith(processLine(123));
     await expect(waitForDesktopStartup("work")).resolves.toBeUndefined();
     expect(execFileMock).toHaveBeenCalledTimes(1);
@@ -164,7 +164,7 @@ describe("waitForDesktopStartup", () => {
   });
 
   it("retries until the requested profile starts", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     replyWith(processLine(456, join(root, "desktop", "personal")));
     replyWith(processLine(123));
     const startup = waitForDesktopStartup("work");
@@ -175,7 +175,7 @@ describe("waitForDesktopStartup", () => {
   });
 
   it("reports a timeout after the bounded startup polling window", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const rejection = expect(waitForDesktopStartup("work")).rejects.toThrow(
       "desktop profile work did not start; check the desktop app and try again",
     );
@@ -186,7 +186,7 @@ describe("waitForDesktopStartup", () => {
   });
 
   it("propagates scan errors without waiting through the polling window", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     execFileMock.mockImplementationOnce((_file, _args, _options, callback: ExecCallback) => {
       callback(new Error("scan failed"), "", "");
     });

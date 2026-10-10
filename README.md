@@ -315,7 +315,8 @@ you pick the profile: Spotlight, Raycast, Launchpad, and pinned Dock aliases.
 The larger color badges distinguish these aliases; they do not change the
 official app's running Dock icons. Connector OAuth callbacks using the
 `codex:` scheme can still reach the default app instance; this tool does not
-register a callback chooser or replace the official URL handler.
+register a callback chooser by default. Enable the optional router below to
+choose which running profile receives browser approvals.
 
 ### Apps, plugins, and browser approvals
 
@@ -326,13 +327,42 @@ credentials from your shell environment keep their own authentication behavior;
 Codex Multi isolates Codex login credentials, not every third-party environment
 variable.
 
-For a connector that opens your browser, check the browser account before
-approving, then confirm the connection appears in the intended Codex account.
-A `codex:` callback can open the default official app instance. If it reaches
-another profile, do not treat the connection as completed for the intended one.
-Codex Multi does not route connector callbacks between profiles, so this flow
-must be checked separately for each connector. Existing connections continue to
-be managed by the official app.
+Enable callback routing once on macOS before connecting apps in separate profiles:
+
+```bash
+npx --yes --package=codex-multi@latest codex-multi callback-router enable
+npx --yes --package=codex-multi@latest codex-multi callback-router status
+```
+
+This installs a small local helper and a user LaunchAgent. It registers the
+`codex:` URL handler and keeps that registration active while enabled, because
+the official app may reclaim it when starting. The official app remains
+unchanged. The helper compiles locally using Apple Command Line Tools; if they
+are missing, run `xcode-select --install` and retry. macOS may ask for Automation
+permission to send the approval to Codex.
+
+For Gmail, Google Drive, GitHub, Figma, or another browser-based connector:
+
+1. Open the intended profile and start its connection in the official app.
+2. Check the browser is signed into the service account you want, then approve.
+3. In **Choose the Codex profile for this callback**, explicitly select that
+   same running profile and continue. There is no default selection.
+4. Confirm the connection appears in that profile. Repeat independently for
+   another account or a separated profile.
+
+Only running apps are offered. If an app closes before delivery, the router
+reports failure; it never sends the approval to another account. Approval URLs
+stay in memory and are never written to disk or passed to subprocesses.
+
+To stop routing and restore the previous URL handler:
+
+```bash
+npx --yes --package=codex-multi@latest codex-multi callback-router disable
+```
+
+With routing off, callbacks use the default official app instance and may reach
+a different profile. Existing connections remain managed by the official app.
+Each connector still requires its own service approval and account validation.
 
 If you want a profile whose Codex state is **not** shared at all (private
 history, projects, and sessions), create it with `--separated`:

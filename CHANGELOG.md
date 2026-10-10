@@ -24,6 +24,9 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Optional macOS connector callback router: choose a running profile for each
+  browser approval, with exact process delivery, no URL logging, and previous
+  handler restoration on disable. The official app remains unmodified.
 - README guide for enabling desktop aliases on existing profiles through the
   latest npx release, with launch, verification, and refresh commands.
 - App integration guide clarifying shared plugins/MCP configuration and

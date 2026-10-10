@@ -9,6 +9,7 @@ import { findRegistered, loadRegistered, type Profile } from "./registry.ts";
 import { renderBadgedIcns, type Rgb } from "./icon.ts";
 import { VERSION } from "../version.ts";
 import { withFileLock } from "./lock.ts";
+import { ensureCallbackRouterHandler } from "./callback-router.ts";
 import { waitForDesktopStartup } from "./desktop-runtime.ts";
 
 const execFileAsync = promisify(execFile);
@@ -735,5 +736,6 @@ export async function launchDesktop(profile: Profile): Promise<void> {
     ], { env });
     // Keep mutations serialized until the app process is visible to guards.
     await waitForDesktopStartup(profile.slug);
+    await ensureCallbackRouterHandler();
   });
 }

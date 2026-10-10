@@ -10,7 +10,9 @@
 - Preserve unknown registry fields and evolving `auth.json` fields where possible.
 - Desktop aliases launch the official desktop app unmodified, with the
   profile's `CODEX_HOME` and a per-profile Electron user data dir; never
-  modify the official app bundle or register the `codex:` URL scheme.
+  modify the official app bundle. Desktop aliases never register the `codex:`
+  URL scheme. The separately enabled callback router may register it only
+  after explicit opt-in, and must restore the previous handler on disable.
 - Only touch `.app` alias bundles whose `Info.plist` carries this project's
   `CodexMultiSlug` marker; never replace a foreign app of the same name.
 - An alias target must belong to the same slug and manager data root. Serialize
@@ -59,3 +61,12 @@ must ship with behavior tests; never use real credentials in fixtures.
 - If authentication or CI blocks publishing, report the blocker and explicitly
   say the npm release is still pending. Never claim local build success means
   users of npx have received the update. Never print or commit npm tokens.
+
+## Connector callback routing
+
+- Keep OAuth URLs in memory only; never log them, write them to disk, or pass
+  them as child-process arguments.
+- Require an explicit user choice among running Codex processes; deliver only
+  to the selected PID, revalidate it, and never broadcast or fall back.
+- Router bundles and LaunchAgents require exact project/root ownership markers.
+- Keep callback routing optional and restore prior handler ownership on disable.

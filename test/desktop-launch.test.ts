@@ -3,13 +3,16 @@ import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-const { execMock, startupMock } = vi.hoisted(() => ({ execMock: vi.fn(), startupMock: vi.fn() }));
+const { execMock, startupMock, callbackRouterMock } = vi.hoisted(() => ({
+  execMock: vi.fn(), startupMock: vi.fn(), callbackRouterMock: vi.fn(),
+}));
 vi.mock("node:child_process", async () => {
   const { promisify } = await import("node:util");
   Object.defineProperty(execMock, promisify.custom, { value: (...args: unknown[]) => execMock(...args) });
   return { execFile: execMock };
 });
 vi.mock("../src/core/desktop-runtime.ts", () => ({ waitForDesktopStartup: startupMock }));
+vi.mock("../src/core/callback-router.ts", () => ({ ensureCallbackRouterHandler: callbackRouterMock }));
 import { desktopInfoPlist, launchDesktop } from "../src/core/desktop.ts";
 import type { Profile } from "../src/core/registry.ts";
 
@@ -31,6 +34,7 @@ beforeEach(async () => {
   vi.stubEnv("CUSTOM_MCP_TOKEN", "fake-mcp-token");
   execMock.mockReset().mockResolvedValue({ stdout: "", stderr: "" });
   startupMock.mockReset().mockResolvedValue(undefined);
+  callbackRouterMock.mockReset().mockResolvedValue(undefined);
 });
 afterEach(async () => {
   Object.defineProperty(process, "platform", originalPlatform);
@@ -50,17 +54,34 @@ describe("official app launch boundary", () => {
       "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"]) expect(options.env[key]).toBeUndefined();
     expect(options.env.CUSTOM_MCP_TOKEN).toBe("fake-mcp-token");
     expect(startupMock).toHaveBeenCalledWith("work");
+    expect(callbackRouterMock).toHaveBeenCalledTimes(1);
+    expect(callbackRouterMock.mock.invocationCallOrder[0]).toBeGreaterThan(startupMock.mock.invocationCallOrder[0]!);
   });
 
   it("reports native open failures without polling for startup", async () => {
     execMock.mockRejectedValueOnce(new Error("open failed"));
     await expect(launchDesktop(profile)).rejects.toThrow("open failed");
     expect(startupMock).not.toHaveBeenCalled();
+    expect(callbackRouterMock).not.toHaveBeenCalled();
   });
 
   it("reports startup failures instead of claiming a successful launch", async () => {
     startupMock.mockRejectedValueOnce(new Error("did not start"));
     await expect(launchDesktop(profile)).rejects.toThrow("did not start");
+    expect(callbackRouterMock).not.toHaveBeenCalled();
+  });
+
+  it("refreshes callback routing only after desktop startup completes", async () => {
+    let finishStartup: () => void = () => {};
+    startupMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { finishStartup = resolve; });
+    });
+    const launching = launchDesktop(profile);
+    await vi.waitFor(() => expect(startupMock).toHaveBeenCalledWith("work"));
+    expect(callbackRouterMock).not.toHaveBeenCalled();
+    finishStartup();
+    await launching;
+    expect(callbackRouterMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the official codex URL scheme out of alias registration", () => {

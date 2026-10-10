@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { edit } from "../src/commands/edit.ts";
 import { remove } from "../src/commands/remove.ts";
-import { moveDesktopUserData, setDesktopEnabledLocked } from "../src/commands/desktop.ts";
+import { desktop, moveDesktopUserData, setDesktopEnabledLocked } from "../src/commands/desktop.ts";
+import * as desktopCore from "../src/core/desktop.ts";
 import { desktopAliasPath, desktopUserDataDir, readPlistValues } from "../src/core/desktop.ts";
 import { assertDesktopStopped } from "../src/core/desktop-runtime.ts";
 import { profileHome, profilesFile } from "../src/core/paths.ts";
@@ -273,5 +274,67 @@ describe("profile desktop data rename", () => {
     expect(await fs.readFile(join(desktopUserDataDir("work"), "session.txt"), "utf8"))
       .toBe("work private session");
     expect((await fs.lstat(desktopAliasPath("Codex Work"))).isDirectory()).toBe(true);
+  });
+});
+
+describe("desktop command profile home", () => {
+  it("launches a separated profile with private skills, plugins, and sessions", async () => {
+    await seedProfile(true);
+    const registered = await findRegistered("work");
+    await fs.writeFile(profilesFile(), JSON.stringify([{ ...registered, separated: true }]));
+    const entries = ["skills", "plugins", "sessions"];
+    for (const entry of entries) {
+      await fs.mkdir(join(root, "base", entry));
+      await fs.writeFile(join(root, "base", entry, "shared.txt"), `base ${entry}`);
+    }
+    const launch = vi.spyOn(desktopCore, "launchDesktop").mockImplementation(async (launched) => {
+      for (const entry of entries) {
+        await fs.mkdir(join(profileHome(launched.slug), entry), { recursive: true });
+        await fs.writeFile(join(profileHome(launched.slug), entry, "private.txt"), `private ${entry}`);
+      }
+    });
+
+    await desktop("work");
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ slug: "work", separated: true }));
+    for (const entry of entries) {
+      expect((await fs.lstat(join(profileHome("work"), entry))).isSymbolicLink()).toBe(false);
+      expect(await fs.readFile(join(profileHome("work"), entry, "private.txt"), "utf8"))
+        .toBe(`private ${entry}`);
+      await expect(fs.lstat(join(profileHome("work"), entry, "shared.txt")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+      await expect(fs.lstat(join(root, "base", entry, "private.txt")))
+        .rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+
+  it("launches a shared profile with plugins linked to the base home", async (context) => {
+    await seedProfile(true);
+    const plugins = join(root, "base", "plugins");
+    await fs.mkdir(plugins);
+    await fs.writeFile(join(plugins, "shared.txt"), "shared plugin setup");
+    if (process.platform === "win32") {
+      const probe = join(root, "junction-probe");
+      try {
+        await fs.symlink(plugins, probe, "junction");
+        await fs.unlink(probe);
+      } catch (error) {
+        if (["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+          context.skip();
+          return;
+        }
+        throw error;
+      }
+    }
+    const launch = vi.spyOn(desktopCore, "launchDesktop").mockResolvedValue(undefined);
+
+    await desktop("work");
+
+    expect(launch).toHaveBeenCalledWith(expect.objectContaining({ slug: "work" }));
+    expect((await fs.lstat(join(profileHome("work"), "plugins"))).isSymbolicLink()).toBe(true);
+    expect(await fs.realpath(join(profileHome("work"), "plugins"))).toBe(await fs.realpath(plugins));
+    await fs.writeFile(join(plugins, "later.txt"), "updated plugin setup");
+    expect(await fs.readFile(join(profileHome("work"), "plugins", "later.txt"), "utf8"))
+      .toBe("updated plugin setup");
   });
 });

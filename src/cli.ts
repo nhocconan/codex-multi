@@ -1,3 +1,4 @@
+import { callbackRouter } from "./core/callback-router.ts";
 import { basename } from "node:path";
 import { add } from "./commands/add.ts";
 import { desktop as desktopCommand, setDesktopEnabled } from "./commands/desktop.ts";
@@ -47,6 +48,10 @@ export async function main(argv = process.argv): Promise<number> {
     const slug = rest[0];
     if (!slug) throw new Error(`usage: cpm ${subcommand} <slug> [-- codex args...]`);
     return await launch(slug, rest.slice(1));
+  }
+  if (subcommand === "callback-router") {
+    await callbackRouter(rest[0] || "status");
+    return 0;
   }
   if (subcommand === "desktop") {
     const slug = rest[0];
@@ -192,6 +197,7 @@ Usage:
   cpm launch <slug> [-- args...]   Launch a profile
   cpm use <slug> [-- args...]      Alias for launch
   cpm desktop <slug>               Open a profile in the Codex desktop app (macOS)
+  cpm callback-router <enable|disable|status>  Optional browser approval routing (macOS)
   cpm login <slug> [options]       Sign in again (rollback on failure)
   cpm edit <slug> [options]        Rename a profile or launcher
   cpm remove <slug> [--yes]        Delete a profile and its isolated auth
