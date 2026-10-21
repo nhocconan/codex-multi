@@ -128,11 +128,26 @@ or remove one you no longer use. Removal asks for confirmation and deletes that
 profile's isolated login and owned launcher. It leaves other profiles and the
 base `~/.codex/auth.json` alone.
 
-To keep a familiar command such as `codex-student` when its current account
-expires, run `cpm login student` or choose **Manage profiles → Student → Sign in
-with another account**. The slug and launcher stay the same. If the new login
-fails, Codex Multi restores the previous profile login. If you have already
-removed a profile, `cpm add --name Student --slug student` can reuse its slug.
+To sign in again with the same profile, run:
+
+```bash
+codex-student login --device-auth
+
+# With npx, including when an older launcher still blocks login:
+npx --yes --package=codex-multi@latest codex-multi login student --device-auth
+```
+
+Omit `--device-auth` for browser login. You can also use `cpm login student` or
+choose **Manage profiles → Student → Sign in with another account**. When a
+launch detects missing or unusable local credentials in an interactive terminal,
+it offers device-code or browser login and continues the original command after
+sign-in. Noninteractive launches print recovery commands instead of prompting.
+Credentials that remain on disk but have been revoked by the server may still
+need an explicit login command.
+
+The slug and launcher stay the same. If the new login fails, Codex Multi restores
+the previous profile login. If you have already removed a profile,
+`cpm add --name Student --slug student` can reuse its slug.
 
 ## Commands
 

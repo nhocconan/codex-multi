@@ -4,6 +4,17 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-21
+
+### Fixed
+
+- Allow `codex-<profile> login --device-auth` when logged out, including through
+  npx-backed launchers, with rollback on failure and active-desktop protection.
+- Offer device-code or browser sign-in when an interactive launch detects missing
+  or unusable local credentials, then continue the requested command. Print
+  runnable alias and npx recovery commands for noninteractive launches.
+- Allow profile `login status` and login help without requiring credentials.
+
 ## [0.3.0] - 2026-10-10
 
 ### Fixed

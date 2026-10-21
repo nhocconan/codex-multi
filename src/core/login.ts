@@ -20,13 +20,18 @@ export async function login(profile: Profile, options: LoginOptions = {}): Promi
   const home = profileHome(profile.slug);
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
   await withFileLock(profileLifecycleLockPath(profile.slug), async () => {
-    await assertDesktopStopped(profile.slug);
-    await recoverAuthBackup(profile.slug);
     await loginLocked(profile, options);
   });
 }
 
-async function loginLocked(profile: Profile, options: LoginOptions): Promise<void> {
+/** Caller must hold the profile lifecycle lock throughout login and rollback. */
+export async function loginLocked(
+  profile: Profile,
+  options: LoginOptions = {},
+  codexArgs: string[] = [],
+): Promise<void> {
+  await assertDesktopStopped(profile.slug);
+  await recoverAuthBackup(profile.slug);
   const home = await buildProfileHome(profile.slug, isSeparated(profile));
   const auth = authPath(profile.slug);
   const backup = authBackupPath(profile.slug);
@@ -39,7 +44,7 @@ async function loginLocked(profile: Profile, options: LoginOptions): Promise<voi
   }
 
   try {
-    const args = ["login"];
+    const args = ["login", ...codexArgs];
     let secret: string | undefined;
     if (options.deviceAuth) args.push("--device-auth");
     if (options.apiKeyEnv) {
