@@ -12,6 +12,8 @@ All notable changes to this project are documented here.
   backups, unsafe profile homes, and invalid profile paths before use.
 - Prevent preplanted temporary files from redirecting credential, registry,
   launcher, or desktop-runtime writes; clean up failed replacements.
+- Retry transient Windows file-lock errors during atomic replacement without
+  removing the destination or exposing a partial file.
 - Recognize desktop and callback-router ownership from actual plist values,
   rejecting comment, nested-key, and duplicate-key spoofs.
 - Preserve callback-router recovery state before changing the URL handler and

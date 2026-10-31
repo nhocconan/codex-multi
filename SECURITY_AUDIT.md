@@ -56,6 +56,11 @@ new helper files were added. New helpers received behavior tests and manual
 review. The atomic-write audit runs in `verify` and CI; CI separately checks
 current npm advisories.
 
+Cross-platform CI exposed transient Windows rename contention during concurrent
+replacements. Windows now retries only sharing/permission contention errors for
+at most 500 ms; permanent errors preserve the destination and clean up the
+temporary file. POSIX errors are returned immediately.
+
 Native tests compile the Swift helper and exercise its validators without
 changing the system URL handler. Router registration, rollback failures, and
 desktop startup races use mocked native calls. Live third-party consent,

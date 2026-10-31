@@ -11,18 +11,65 @@ vi.mock("node:crypto", async (importOriginal) => {
 });
 
 let root: string;
+const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
 
 beforeEach(async () => {
   root = await fs.mkdtemp(join(tmpdir(), "cpm-atomic-"));
 });
 
 afterEach(async () => {
+  Object.defineProperty(process, "platform", originalPlatform);
+  vi.restoreAllMocks();
   vi.mocked(randomUUID).mockReset();
   vi.mocked(randomUUID).mockImplementation((await vi.importActual<typeof import("node:crypto")>("node:crypto")).randomUUID);
   await fs.rm(root, { recursive: true, force: true });
 });
 
 describe("private atomic writes", () => {
+  it.each(["EPERM", "EACCES", "EBUSY"])("retries transient Windows %s replacement failures without deleting the destination", async (code) => {
+    Object.defineProperty(process, "platform", { ...originalPlatform, value: "win32" });
+    const path = join(root, "registry.json");
+    await fs.writeFile(path, "original");
+    const rename = fs.rename.bind(fs);
+    let attempts = 0;
+    const replacement = vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      attempts++;
+      expect(await fs.readFile(path, "utf8")).toBe("original");
+      if (attempts < 3) throw Object.assign(new Error("transient Windows contention"), { code });
+      await rename(from, to);
+    });
+    const unlink = vi.spyOn(fs, "unlink");
+    await atomicWrite(path, "replacement");
+    expect(replacement).toHaveBeenCalledTimes(3);
+    expect(unlink.mock.calls.every(([target]) => String(target) !== path)).toBe(true);
+    expect(await fs.readFile(path, "utf8")).toBe("replacement");
+    expect(await fs.readdir(root)).toEqual(["registry.json"]);
+  });
+
+  it("bounds retries for permanent Windows contention and preserves the destination", async () => {
+    Object.defineProperty(process, "platform", { ...originalPlatform, value: "win32" });
+    const path = join(root, "registry.json");
+    await fs.writeFile(path, "original");
+    const error = Object.assign(new Error("permanent contention"), { code: "EPERM" });
+    const replacement = vi.spyOn(fs, "rename").mockRejectedValue(error);
+    await expect(atomicWrite(path, "replacement")).rejects.toBe(error);
+    expect(replacement).toHaveBeenCalledTimes(11);
+    expect(await fs.readFile(path, "utf8")).toBe("original");
+    expect(await fs.readdir(root)).toEqual(["registry.json"]);
+  });
+
+  it.each([["win32", "ENOSPC"], ["linux", "EPERM"], ["darwin", "EBUSY"]] as const)("does not retry %s %s failures", async (platform, code) => {
+    Object.defineProperty(process, "platform", { ...originalPlatform, value: platform });
+    const path = join(root, "registry.json");
+    await fs.writeFile(path, "original");
+    const error = Object.assign(new Error("replacement denied"), { code });
+    const replacement = vi.spyOn(fs, "rename").mockRejectedValue(error);
+    await expect(atomicWrite(path, "replacement")).rejects.toBe(error);
+    expect(replacement).toHaveBeenCalledTimes(1);
+    expect(await fs.readFile(path, "utf8")).toBe("original");
+    expect(await fs.readdir(root)).toEqual(["registry.json"]);
+  });
+
   it("refuses an existing temporary file without changing or removing it", async () => {
     vi.mocked(randomUUID).mockReturnValue("00000000-0000-4000-8000-000000000000");
     const path = join(root, "auth.json");
