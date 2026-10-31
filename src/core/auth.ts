@@ -1,7 +1,10 @@
 import { createHash } from "node:crypto";
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join, resolve } from "node:path";
 import { baseCodexHome, profileHome } from "./paths.ts";
+import { atomicWrite } from "./atomic-write.ts";
+
+export { atomicWrite } from "./atomic-write.ts";
 
 export interface AuthSummary {
   ok: boolean;
@@ -23,7 +26,45 @@ export function authBackupPath(slug: string): string {
   return `${authPath(slug)}.cpm-backup`;
 }
 
+export async function assertProfileAuthIsolation(slug: string): Promise<void> {
+  const home = profileHome(slug);
+  const normalizedHome = resolve(home);
+  const normalizedBase = resolve(baseCodexHome());
+  if (process.platform === "win32"
+    ? normalizedHome.toLowerCase() === normalizedBase.toLowerCase()
+    : normalizedHome === normalizedBase) {
+    throw new Error("profile home must be separate from the base Codex home");
+  }
+  try {
+    const stat = await fs.lstat(home);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error("profile home must be a real directory, not a symbolic link");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const base = await fs.realpath(baseCodexHome()).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") return undefined;
+    throw error;
+  });
+  if (base && base === await fs.realpath(home)) {
+    throw new Error("profile home must be separate from the base Codex home");
+  }
+  for (const path of [authPath(slug), authBackupPath(slug)]) {
+    try {
+      const stat = await fs.lstat(path);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) {
+        throw new Error("profile credentials must be real, unlinked files");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+}
+
 export async function recoverAuthBackup(slug: string): Promise<void> {
+  await assertProfileAuthIsolation(slug);
   const auth = authPath(slug);
   const backup = authBackupPath(slug);
   try {
@@ -50,6 +91,7 @@ export async function recoverAuthBackup(slug: string): Promise<void> {
 }
 
 export async function copyCurrentAuth(slug: string): Promise<void> {
+  await assertProfileAuthIsolation(slug);
   const source = baseAuthPath();
   const bytes = await fs.readFile(source).catch((error: NodeJS.ErrnoException) => {
     if (error.code === "ENOENT") {
@@ -66,6 +108,7 @@ export async function copyCurrentAuth(slug: string): Promise<void> {
 export async function inspectAuth(slug: string): Promise<AuthSummary> {
   let parsed: Record<string, unknown>;
   try {
+    await assertProfileAuthIsolation(slug);
     const raw = await fs.readFile(authPath(slug), "utf8");
     const value: unknown = JSON.parse(raw);
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -118,6 +161,7 @@ export async function inspectAuth(slug: string): Promise<AuthSummary> {
 
 export async function authFingerprint(slug: string): Promise<string | undefined> {
   try {
+    await assertProfileAuthIsolation(slug);
     const bytes = await fs.readFile(authPath(slug));
     let stableCredential: string | undefined;
     try {
@@ -139,14 +183,6 @@ export async function authFingerprint(slug: string): Promise<string | undefined>
   } catch {
     return undefined;
   }
-}
-
-export async function atomicWrite(path: string, content: Uint8Array | string): Promise<void> {
-  await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, content, { mode: 0o600 });
-  await fs.rename(temporary, path);
-  if (process.platform !== "win32") await fs.chmod(path, 0o600);
 }
 
 function decodeJwtClaims(token: string): Record<string, unknown> | undefined {

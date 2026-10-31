@@ -10,7 +10,10 @@ import { renderBadgedIcns, type Rgb } from "./icon.ts";
 import { VERSION } from "../version.ts";
 import { withFileLock } from "./lock.ts";
 import { ensureCallbackRouterHandler } from "./callback-router.ts";
-import { waitForDesktopStartup } from "./desktop-runtime.ts";
+import { prepareDesktopLaunch, waitForDesktopStartup } from "./desktop-runtime.ts";
+import { atomicWrite } from "./atomic-write.ts";
+import { readPlistValues } from "./plist.ts";
+export { readPlistValues } from "./plist.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -222,51 +225,6 @@ async function resolveAppBundleIcon(
   return undefined;
 }
 
-/** Read key/string pairs from an XML plist. Uses plutil on macOS (handles binary plists). */
-export async function readPlistValues(path: string): Promise<Record<string, string>> {
-  if (process.platform === "darwin") {
-    try {
-      const { stdout } = await execFileAsync("/usr/bin/plutil", [
-        "-convert",
-        "json",
-        "-o",
-        "-",
-        path,
-      ]);
-      return stringValuesOf(JSON.parse(stdout));
-    } catch {
-      // Fall through to the XML parser for bundles plutil cannot read.
-    }
-  }
-  const text = await fs.readFile(path, "utf8");
-  const values: Record<string, string> = {};
-  const pattern = /<key>([^<]+)<\/key>\s*<(?:string|integer)>([^<]*)<\/(?:string|integer)>/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(text)) !== null) {
-    values[unescapeXml(match[1]!)] = unescapeXml(match[2]!);
-  }
-  return values;
-}
-
-function stringValuesOf(parsed: unknown): Record<string, string> {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-  const values: Record<string, string> = {};
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (typeof value === "string") values[key] = value;
-    else if (typeof value === "number") values[key] = String(value);
-  }
-  return values;
-}
-
-function unescapeXml(value: string): string {
-  return value
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, "&");
-}
-
 function escapeXml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -346,13 +304,7 @@ async function installDesktopManager(): Promise<void> {
   if (!content) throw new Error("desktop launcher runtime is missing; build or reinstall codex-multi first");
   const destination = desktopManagerPath();
   await fs.mkdir(dirname(destination), { recursive: true, mode: 0o700 });
-  const temporary = `${destination}.${process.pid}.tmp`;
-  try {
-    await fs.writeFile(temporary, content, { mode: 0o700 });
-    await fs.rename(temporary, destination);
-  } finally {
-    await fs.rm(temporary, { force: true }).catch(() => {});
-  }
+  await atomicWrite(destination, content, 0o700);
 }
 
 export function desktopScript(
@@ -725,6 +677,10 @@ export async function launchDesktop(profile: Profile): Promise<void> {
   env.CODEX_HOME = home;
 
   await withFileLock(profileLifecycleLockPath(profile.slug), async () => {
+    if (!(await prepareDesktopLaunch(profile.slug))) {
+      await ensureCallbackRouterHandler();
+      return;
+    }
     await execFileAsync("/usr/bin/open", [
       "-n",
       detected.path,

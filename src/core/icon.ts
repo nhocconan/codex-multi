@@ -6,6 +6,21 @@ import { promisify } from "node:util";
 import { PNG } from "pngjs";
 
 const execFileAsync = promisify(execFile);
+const MAX_ICON_SIZE = 1024;
+
+function pngDimensions(png: Buffer): { width: number; height: number } | null {
+  if (png.length < 33 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
+      png.readUInt32BE(8) !== 13 || png.toString("ascii", 12, 16) !== "IHDR") return null;
+  const width = png.readUInt32BE(16);
+  const height = png.readUInt32BE(20);
+  if (width < 1 || height < 1 || width > MAX_ICON_SIZE || height > MAX_ICON_SIZE) return null;
+  return { width, height };
+}
+
+function readIconPng(png: Buffer): PNG {
+  if (!pngDimensions(png)) throw new Error("icon PNG dimensions must be between 1 and 1024 pixels");
+  return PNG.sync.read(png);
+}
 
 export interface Rgb {
   r: number;
@@ -25,9 +40,9 @@ export function extractLargestPng(icns: Buffer): { png: Buffer; size: number } |
     const length = icns.readUInt32BE(offset + 4);
     if (length < 8 || offset + length > icns.length) break;
     const payload = icns.subarray(offset + 8, offset + length);
-    if (payload.length > 24 && payload[0] === 0x89 && payload[1] === 0x50) {
-      const width = payload.readUInt32BE(16);
-      const height = payload.readUInt32BE(20);
+    const dimensions = pngDimensions(payload);
+    if (dimensions) {
+      const { width, height } = dimensions;
       if (width === height && (!best || width > best.size)) {
         best = { png: Buffer.from(payload), size: width };
       }
@@ -42,14 +57,17 @@ export function extractLargestPng(icns: Buffer): { png: Buffer; size: number } |
  * a square icon, preserving pixels outside the badge. Returns a new PNG buffer.
  */
 export function drawBadge(png: Buffer, color: Rgb): Buffer {
-  const image = PNG.sync.read(png);
+  const image = readIconPng(png);
+  if (image.width !== image.height) throw new Error("badge icon must be square");
   const size = image.width;
   const radius = Math.max(4, Math.round(size * 0.22));
   const center = size - radius - Math.max(2, Math.round(size * 0.07));
   const ringWidth = Math.max(1, Math.round(size * 0.025));
   const data = image.data;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
+  const start = Math.max(0, Math.floor(center - radius - 1));
+  const end = Math.min(size, Math.ceil(center + radius + 1));
+  for (let y = start; y < end; y++) {
+    for (let x = start; x < end; x++) {
       const distance = Math.hypot(x + 0.5 - center, y + 0.5 - center);
       const fill = coverage(radius - ringWidth, distance);
       const total = coverage(radius, distance);
@@ -91,7 +109,7 @@ function clampByte(value: number): number {
 
 /** Halve a PNG's dimensions with a premultiplied-alpha 2x2 box filter. */
 export function halveImage(png: Buffer): Buffer {
-  const image = PNG.sync.read(png);
+  const image = readIconPng(png);
   if (image.width < 2 || image.height < 2) return PNG.sync.write(image);
   const width = image.width >> 1;
   const height = image.height >> 1;
@@ -101,15 +119,14 @@ export function halveImage(png: Buffer): Buffer {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const index = (width * y + x) << 2;
-      const samples = [
-        ((y * 2) * image.width + x * 2) * 4,
-        ((y * 2) * image.width + x * 2 + 1) * 4,
-        ((y * 2 + 1) * image.width + x * 2) * 4,
-        ((y * 2 + 1) * image.width + x * 2 + 1) * 4,
-      ];
-      const alpha = samples.reduce((sum, sample) => sum + source[sample + 3]!, 0);
+      const a = ((y * 2) * image.width + x * 2) * 4;
+      const b = a + 4;
+      const c = a + image.width * 4;
+      const d = c + 4;
+      const alpha = source[a + 3]! + source[b + 3]! + source[c + 3]! + source[d + 3]!;
       for (let channel = 0; channel < 3; channel++) {
-        const weighted = samples.reduce((sum, sample) => sum + source[sample + channel]! * source[sample + 3]!, 0);
+        const weighted = source[a + channel]! * source[a + 3]! + source[b + channel]! * source[b + 3]! +
+          source[c + channel]! * source[c + 3]! + source[d + channel]! * source[d + 3]!;
         target[index + channel] = alpha ? clampByte(weighted / alpha) : 0;
       }
       target[index + 3] = clampByte(alpha / 4);
@@ -168,20 +185,21 @@ export async function renderBadgedIcns(
   }
   if (!source || source.size < 32) return null;
 
-  const iconset = join(tmpdir(), `codex-multi-icon-${process.pid}-${Date.now()}.iconset`);
-  const destination = iconset.replace(/\.iconset$/, ".icns");
+  let scratch: string | undefined;
   try {
+    scratch = await fs.mkdtemp(join(tmpdir(), "codex-multi-icon-"));
+    const iconset = join(scratch, "badge.iconset");
+    const destination = join(scratch, "badge.icns");
     const badged = drawBadge(source.png, color);
     await fs.mkdir(iconset, { recursive: true });
     for (const file of iconsetPngs(badged, source.size)) {
       await fs.writeFile(join(iconset, file.name), file.png);
     }
-    await execFileAsync("/usr/bin/iconutil", ["-c", "icns", iconset, "-o", destination]);
+    await execFileAsync("/usr/bin/iconutil", ["-c", "icns", iconset, "-o", destination], { timeout: 15_000 });
     return await fs.readFile(destination);
   } catch {
     return null;
   } finally {
-    await fs.rm(iconset, { recursive: true, force: true }).catch(() => {});
-    await fs.rm(destination, { force: true }).catch(() => {});
+    if (scratch) await fs.rm(scratch, { recursive: true, force: true }).catch(() => {});
   }
 }

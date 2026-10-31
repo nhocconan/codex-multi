@@ -21,6 +21,7 @@ const RED: Rgb = { r: 229, g: 72, b: 77 };
 const nativeExec = vi.hoisted(() => vi.fn<(
   command: string,
   args: readonly string[],
+  options: { timeout: number },
   callback: (error: Error | null, stdout: string, stderr: string) => void,
 ) => void>());
 vi.mock("node:child_process", () => ({ execFile: nativeExec }));
@@ -75,6 +76,18 @@ describe("icns extraction", () => {
   it("rejects non-icns data and icns without PNG members", () => {
     expect(extractLargestPng(Buffer.from("not an icon"))).toBeNull();
     expect(extractLargestPng(icnsContainer([{ type: "ic07", payload: Buffer.from([1, 2, 3]) }]))).toBeNull();
+  });
+
+  it("skips oversized PNG members before decoding and keeps a usable smaller icon", () => {
+    const oversized = solidPng(32, [1, 2, 3, 255]);
+    oversized.writeUInt32BE(0x7fffffff, 16);
+    oversized.writeUInt32BE(0x7fffffff, 20);
+    expect(extractLargestPng(icnsContainer([
+      { type: "ic10", payload: oversized },
+      { type: "ic07", payload: solidPng(64, [4, 5, 6, 255]) },
+    ]))?.size).toBe(64);
+    expect(() => drawBadge(oversized, RED)).toThrow(/dimensions/);
+    expect(() => halveImage(oversized)).toThrow(/dimensions/);
   });
 });
 
@@ -219,7 +232,7 @@ describe("badged icns rendering", () => {
     const output = Buffer.from("native icon output");
     let iconset = "";
     let destination = "";
-    nativeExec.mockImplementation((_command, args, callback) => {
+    nativeExec.mockImplementation((_command, args, _options, callback) => {
       iconset = args[2]!;
       destination = args[4]!;
       void fs.readFile(join(iconset, "icon_128x128.png")).then(async (badged) => {
@@ -229,10 +242,26 @@ describe("badged icns rendering", () => {
       }).catch((error: Error) => callback(error, "", ""));
     });
     expect(await renderBadgedIcns(source, RED)).toEqual(output);
-    expect(nativeExec).toHaveBeenCalledWith("/usr/bin/iconutil", ["-c", "icns", iconset, "-o", destination], expect.any(Function));
+    expect(nativeExec).toHaveBeenCalledWith("/usr/bin/iconutil", ["-c", "icns", iconset, "-o", destination], { timeout: 15_000 }, expect.any(Function));
     await expect(fs.stat(iconset)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(fs.stat(destination)).rejects.toMatchObject({ code: "ENOENT" });
     expect(await fs.readFile(source)).toEqual(original);
+  });
+
+  it("uses separate private scratch directories for simultaneous renders", async () => {
+    delete process.env.CODEX_MULTI_NO_NATIVE_TOOLS;
+    const source = join(root, "app.icns");
+    await fs.writeFile(source, icnsContainer([{ type: "ic07", payload: solidPng(64, [1, 2, 3, 255]) }]));
+    const paths: string[] = [];
+    nativeExec.mockImplementation((_command, args, _options, callback) => {
+      paths.push(args[2]!);
+      void fs.writeFile(args[4]!, "rendered").then(() => callback(null, "", ""), error => callback(error, "", ""));
+    });
+    const outputs = await Promise.all([renderBadgedIcns(source, RED), renderBadgedIcns(source, RED)]);
+    expect(paths).toHaveLength(2);
+    expect(new Set(paths).size).toBe(2);
+    expect(outputs.map(output => output?.toString())).toEqual(["rendered", "rendered"]);
+    for (const path of paths) await expect(fs.stat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("falls back and cleans up when iconutil fails", async () => {
@@ -240,7 +269,7 @@ describe("badged icns rendering", () => {
     const source = join(root, "app.icns");
     await fs.writeFile(source, icnsContainer([{ type: "ic09", payload: solidPng(128, [1, 2, 3, 255]) }]));
     let iconset = "";
-    nativeExec.mockImplementation((_command, args, callback) => {
+    nativeExec.mockImplementation((_command, args, _options, callback) => {
       iconset = args[2]!;
       callback(new Error("iconutil unavailable"), "", "");
     });

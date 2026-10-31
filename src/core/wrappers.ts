@@ -7,6 +7,7 @@ import {
   resolveSelfBinary,
 } from "./paths.ts";
 import { VERSION } from "../version.ts";
+import { atomicWrite } from "./atomic-write.ts";
 
 const MARKER = "codex-multi launcher";
 
@@ -177,10 +178,7 @@ exit /b %errorlevel%\r
 }
 
 async function writeLauncher(path: string, content: string): Promise<void> {
-  const temporary = `${path}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, content, { mode: 0o755 });
-  await fs.rename(temporary, path);
-  if (process.platform !== "win32") await fs.chmod(path, 0o755);
+  await atomicWrite(path, content, 0o755);
 }
 
 export function launcherTargetDescription(): string {

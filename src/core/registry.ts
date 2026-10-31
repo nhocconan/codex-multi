@@ -1,11 +1,13 @@
 import { promises as fs } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
+import { atomicWrite } from "./atomic-write.ts";
 import {
   launcherName,
   profileHome,
   profileHomesDir,
   profileMutationLockPath,
   profilesFile,
+  validProfileSlug,
 } from "./paths.ts";
 import { processIsRunning, withFileLock } from "./lock.ts";
 
@@ -26,7 +28,7 @@ export function isSeparated(profile: Profile): boolean {
 }
 
 export function validSlug(slug: string): boolean {
-  return slug !== "multi" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+  return validProfileSlug(slug);
 }
 
 export function validLabel(label: string): boolean {
@@ -172,12 +174,7 @@ function asProfile(item: unknown): Profile | undefined {
 
 async function writeAll(rows: unknown[]): Promise<void> {
   const path = profilesFile();
-  await fs.mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.${process.pid}.tmp`;
-  await fs.writeFile(temporary, `${JSON.stringify(rows, null, 2)}\n`, {
-    mode: 0o600,
-  });
-  await fs.rename(temporary, path);
+  await atomicWrite(path, `${JSON.stringify(rows, null, 2)}\n`);
 }
 
 export async function append(profile: Profile): Promise<void> {

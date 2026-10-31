@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-31
+
+### Fixed
+
+- Keep profile credentials isolated by rejecting linked auth files, linked
+  backups, unsafe profile homes, and invalid profile paths before use.
+- Prevent preplanted temporary files from redirecting credential, registry,
+  launcher, or desktop-runtime writes; clean up failed replacements.
+- Recognize desktop and callback-router ownership from actual plist values,
+  rejecting comment, nested-key, and duplicate-key spoofs.
+- Preserve callback-router recovery state before changing the URL handler and
+  retain recovery material when rollback cannot be confirmed.
+- Keep delayed or failed desktop launches protected from credential changes,
+  renames, and removal. After cancelling a queued launch, recover with
+  `cpm desktop-reset-pending <slug> --confirm-quit`.
+- Update vulnerable development dependencies and add a security check to CI.
+
+### Changed
+
+- Reduce icon processing work while preserving identical artwork; use private
+  scratch directories and reject oversized PNG dimensions before decoding.
+- Skip process scans for unrelated apps in the callback chooser.
+- Clarify that profile color badges identify launcher aliases; changing the
+  official app's running Dock icon requires support inside that app.
+
 ## [0.3.1] - 2026-10-21
 
 ### Fixed

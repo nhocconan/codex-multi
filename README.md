@@ -306,7 +306,7 @@ window state, and credentials stay per profile while Codex history, projects,
 skills, and config remain shared from `~/.codex` — chats themselves are
 cloud-synced per account. The desktop app's UI-state file stays private per
 profile so simultaneous instances never conflict. Opening the same alias twice
-just focuses the running instance.
+reuses the running instance.
 
 Aliases use a private, fully bundled manager runtime under
 `~/.config/codex-multi/runtime`, so they continue working if an `npx` cache is
@@ -316,6 +316,16 @@ profile's shared config before launching and clears ambient auth variables.
 Quit a profile's desktop instance before signing in again, renaming its command
 suffix, or removing it. Alias names and colors can be refreshed while it runs.
 
+If a desktop launch times out, credential changes, renames, and removal stay
+blocked until the app is observed running or you cancel the launch. After
+quitting the app and cancelling any queued launch, recover with:
+
+```bash
+cpm desktop-reset-pending work --confirm-quit
+```
+
+This command refuses to clear the pending launch while that profile is running.
+
 Aliases carry an ownership marker in their bundle `Info.plist`; `cpm` only ever
 touches its own bundles and never replaces a foreign app of the same name.
 An alias owned by another profile or manager data root is also a conflict.
@@ -323,9 +333,10 @@ An alias owned by another profile or manager data root is also a conflict.
 `cpm doctor` keep aliases consistent with the registry.
 
 One macOS limit to know: while profile instances are **running**, their windows
-group under the original app's Dock/⌘-Tab icon — macOS identifies running apps
-by their signed bundle, and separating those would require modifying or
-re-signing copies of the official app. The distinct icons and names apply where
+use the official app's Dock/⌘-Tab icon. macOS exposes a running app's icon as
+read-only to other processes; the official app would need to support changing
+its own icon for each profile. This manager cannot set it through supported
+external APIs. The distinct icons and names apply where
 you pick the profile: Spotlight, Raycast, Launchpad, and pinned Dock aliases.
 The larger color badges distinguish these aliases; they do not change the
 official app's running Dock icons. Connector OAuth callbacks using the

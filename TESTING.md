@@ -12,10 +12,20 @@ npm run verify
 
 That command runs:
 
-1. `tsc --noEmit`
-2. all Vitest tests
-3. the production bundle
-4. a bundled CLI version smoke test
+1. the atomic replacement source audit
+2. `tsc --noEmit`
+3. all Vitest tests
+4. the production bundle
+5. a bundled CLI version smoke test
+
+The CI security job also runs `npm audit --audit-level=moderate`, including dev
+dependencies. Run `npm audit` locally when checking current advisories.
+Development checks use Node 22; the distributed CLI still targets Node 18+.
+
+Run `node scripts/benchmark/icons.mjs <baseline-ref>` to compare the current icon
+pipeline with a Git revision (defaults to `HEAD`). It checks identical output and
+reports alternating before/after medians for a generated 1024px icon; it does not
+launch the desktop app or measure its rendering performance.
 
 ## Version and release checks
 
@@ -48,6 +58,10 @@ before reporting the release as available.
 - Regression tests cover profile and alias collisions, staged replacement and
   registry rollback, disabled desktop data renames, unknown-field preservation,
   separated login, shell environment scrubbing, and malformed icon fallback.
+- Security regressions cover exclusive atomic writes, credential symlinks and
+  hard links, path traversal before lock creation, semantic plist ownership,
+  delayed desktop startup, explicit pending-launch recovery under both locks,
+  and callback-router interruption/rollback failures.
 - Integration tests import a fake file-based login and launch a fake Codex
   executable through a real profile home.
 - Packaging is checked with `npm pack --dry-run`.

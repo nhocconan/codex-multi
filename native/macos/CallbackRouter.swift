@@ -304,14 +304,17 @@ private final class Router: NSObject, NSApplicationDelegate {
         } catch { return nil }
     }
 
-    private func isMainApp(_ app: NSRunningApplication, arguments: String) -> Bool {
+    private func isOfficialApp(_ app: NSRunningApplication) -> Bool {
         guard !app.isTerminated, app.bundleIdentifier == officialBundleID,
               let bundleURL = app.bundleURL,
               let bundle = Bundle(url: bundleURL),
-              bundle.object(forInfoDictionaryKey: "CodexMultiSlug") == nil,
-              arguments.contains(".app/Contents/MacOS/"),
-              arguments.range(of: "(?:^|\\s)--type(?:=|\\s)", options: .regularExpression) == nil else { return false }
+              bundle.object(forInfoDictionaryKey: "CodexMultiSlug") == nil else { return false }
         return true
+    }
+
+    private func isMainApp(_ app: NSRunningApplication, arguments: String) -> Bool {
+        isOfficialApp(app) && arguments.contains(".app/Contents/MacOS/") &&
+            arguments.range(of: "(?:^|\\s)--type(?:=|\\s)", options: .regularExpression) == nil
     }
 
     fileprivate func destinations() -> [Destination] {
@@ -320,7 +323,8 @@ private final class Router: NSObject, NSApplicationDelegate {
         let desktop = root.appendingPathComponent("desktop", isDirectory: true)
         var result: [Destination] = []
         for app in NSWorkspace.shared.runningApplications {
-            guard let args = arguments(for: app.processIdentifier), isMainApp(app, arguments: args),
+            guard isOfficialApp(app),
+                  let args = arguments(for: app.processIdentifier), isMainApp(app, arguments: args),
                   let bundleURL = app.bundleURL else { continue }
             if let profile = profiles.first(where: {
                 matchesDataDirectory(args, directory: desktop.appendingPathComponent($0.slug, isDirectory: true).path)

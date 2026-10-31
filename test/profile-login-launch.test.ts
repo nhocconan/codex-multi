@@ -67,6 +67,23 @@ function tty(interactive: boolean): void {
 }
 
 describe("logged-out profile launchers", () => {
+  it.for([["exec", "hello"], ["login", "--device-auth"], ["login", "status"]])("blocks linked credentials before starting Codex: %j", async (args, context) => {
+    await fs.mkdir(join(root, "manager", "profiles", "conan"), { recursive: true });
+    try {
+      await fs.symlink(join(root, "base", "auth.json"), authPath("conan"));
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+    await expect(launch("conan", args)).rejects.toThrow("real, unlinked files");
+    await expect(calls()).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(join(root, "base", "auth.json"), "utf8")).toBe('{"OPENAI_API_KEY":"fake-base"}');
+    expect((await fs.lstat(authPath("conan"))).isSymbolicLink()).toBe(true);
+  });
+
   it("allows device login through the same launch route used by npx wrappers", async () => {
     await expect(launch("conan", ["--", "login", "--device-auth"])).resolves.toBe(0);
     expect(await calls()).toEqual([{ args: ["login", "--device-auth"], home: join(root, "manager", "profiles", "conan") }]);

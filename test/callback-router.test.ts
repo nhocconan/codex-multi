@@ -75,21 +75,27 @@ async function writeFile(file: string, contents: string): Promise<void> {
   await fs.writeFile(file, contents);
 }
 
-function mockFailedNativeInstall(restoreFails = false): void {
+function mockFailedNativeInstall(restoreFails = false, bootoutFails = false): void {
   setPlatform("darwin");
   vi.stubEnv("CODEX_MULTI_NO_NATIVE_TOOLS", undefined);
+  let handler = "org.example.previous";
   execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
     const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
     if (file === "/usr/bin/swiftc") {
       const destination = args[args.indexOf("-o") + 1]!;
       void fs.writeFile(destination, "fake compiled helper").then(() => done(null, "", ""), (error) => done(error, "", ""));
     } else if (args[0] === "--handler") {
-      done(null, "org.example.previous", "");
+      done(null, handler, "");
     } else if (args[0] === "bootstrap") {
       done(new Error("launch agent bootstrap failed"), "", "");
+    } else if (bootoutFails && args[0] === "bootout") {
+      done(new Error("launch agent cannot be stopped"), "", "");
     } else if (restoreFails && args[0] === "--register" && args[1] === "org.example.previous") {
       done(new Error("handler restore failed"), "", "");
-    } else done(null, "", "");
+    } else {
+      if (args[0] === "--register") handler = args[1]!;
+      done(null, "", "");
+    }
   });
 }
 
@@ -201,6 +207,27 @@ describe("callback router ownership checks", () => {
     await writeBundlePlist(foreign);
     await expect(callbackRouter("enable")).rejects.toThrow();
     expect(await fs.readFile(join(bundle, "Contents", "Info.plist"), "utf8")).toBe(foreign);
+  });
+
+  it.each(["comment", "nested", "integer"])("rejects foreign bundles with %s ownership spoofs before executing or removing them", async (spoof) => {
+    await callbackRouter("enable");
+    const { id, bundle, state } = routerPaths();
+    const owned = routerPlist(stateRoot, join(stateRoot, "profiles.json"), id);
+    const markers = owned.slice(owned.indexOf("<key>CodexMultiRouter</key>"), owned.indexOf("<key>CodexMultiProfilesFile</key>"));
+    const claimed = spoof === "comment" ? `<!--${markers}-->`
+      : spoof === "nested" ? `<key>Metadata</key><dict>${markers}</dict>`
+      : markers.replace("<string>1</string>", "<integer>1</integer>");
+    const foreign = `<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>${id}</string>${claimed}</dict></plist>`;
+    await writeBundlePlist(foreign);
+    const before = await fs.readFile(state, "utf8");
+    setPlatform("darwin");
+    vi.stubEnv("CODEX_MULTI_NO_NATIVE_TOOLS", undefined);
+    await expect(ensureCallbackRouterHandler()).rejects.toThrow(/bundle is missing or foreign/);
+    await expect(callbackRouter("enable")).rejects.toThrow(/belongs to another app or manager/);
+    await expect(callbackRouter("disable")).rejects.toThrow(/belongs to another app or manager/);
+    expect(await fs.readFile(join(bundle, "Contents", "Info.plist"), "utf8")).toBe(foreign);
+    expect(await fs.readFile(state, "utf8")).toBe(before);
+    expect(execFileMock.mock.calls.some((call) => (call[1] as string[])[0] === "--register")).toBe(false);
   });
 
   it("preserves a foreign LaunchAgent instead of overwriting it", async () => {
@@ -423,6 +450,158 @@ describe("callback router native handler registration", () => {
     });
     expect(await fs.readFile(join(bundle, "Contents", "MacOS", "callback-router"), "utf8")).toBe("fake compiled helper");
     expect(await fs.readdir(appsDir)).toEqual(["Codex Multi Callback Router.app"]);
+  });
+
+  it("persists the previous handler before LaunchServices or the helper can change it", async () => {
+    mockFailedNativeInstall();
+    const implementation = execFileMock.getMockImplementation()!;
+    const records: unknown[] = [];
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (args[0] === "-f" || args[0] === "--register" && args[1] === routerPaths().id) {
+        void fs.readFile(routerPaths().state, "utf8").then((contents) => {
+          records.push(JSON.parse(contents));
+          implementation(file, args, optionsOrCallback, callback);
+        }, (error) => done(error, "", ""));
+      } else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("enable")).rejects.toThrow("launch agent bootstrap failed");
+    expect(records).toHaveLength(2);
+    for (const record of records) expect(record).toMatchObject({
+      enabled: true, previousHandler: "org.example.previous", id: routerPaths().id, bundle: routerPaths().bundle,
+    });
+  });
+
+  it("does not change the handler or overwrite state that appears during setup", async () => {
+    mockFailedNativeInstall();
+    const implementation = execFileMock.getMockImplementation()!;
+    const foreignState = "concurrent recovery state";
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (file === "/usr/bin/codesign") {
+        void writeFile(routerPaths().state, foreignState).then(() => done(null, "", ""), (error) => done(error, "", ""));
+      } else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("enable")).rejects.toThrow(/EEXIST/);
+    expect(await fs.readFile(routerPaths().state, "utf8")).toBe(foreignState);
+    expect(execFileMock.mock.calls.some((call) => ["-f", "--register"].includes((call[1] as string[])[0]!))).toBe(false);
+    await expect(fs.access(routerPaths().bundle)).rejects.toThrow();
+  });
+
+  it("attempts handler restoration even if stopping a failed installation's agent fails", async () => {
+    mockFailedNativeInstall(false, true);
+    await expect(callbackRouter("enable")).rejects.toThrow(/preserved recovery state and helper/);
+    const { bundle, agent, state } = routerPaths();
+    expect(execFileMock.mock.calls.some((call) => (call[1] as string[])[0] === "--register" && (call[1] as string[])[1] === "org.example.previous")).toBe(true);
+    expect(JSON.parse(await fs.readFile(state, "utf8")).previousHandler).toBe("org.example.previous");
+    expect((await fs.stat(bundle)).isDirectory()).toBe(true);
+    expect((await fs.stat(agent)).isFile()).toBe(true);
+  });
+
+  it("preserves a handler selected by another application during failed setup", async () => {
+    mockFailedNativeInstall();
+    const implementation = execFileMock.getMockImplementation()!;
+    let failed = false;
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (args[0] === "bootstrap") {
+        failed = true;
+        done(new Error("launch agent bootstrap failed"), "", "");
+      } else if (failed && args[0] === "--handler") done(null, "org.example.other-app", "");
+      else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("enable")).rejects.toThrow("launch agent bootstrap failed");
+    expect(execFileMock.mock.calls.some((call) => (call[1] as string[])[0] === "--register" && (call[1] as string[])[1] === "org.example.previous")).toBe(false);
+    await expect(fs.access(routerPaths().state)).rejects.toThrow();
+  });
+
+  it("keeps the recovery record when rollback cannot determine the current handler", async () => {
+    mockFailedNativeInstall();
+    const implementation = execFileMock.getMockImplementation()!;
+    let failed = false;
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (args[0] === "bootstrap") {
+        failed = true;
+        done(new Error("launch agent bootstrap failed"), "", "");
+      } else if (failed && args[0] === "--handler") done(null, "", "");
+      else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("enable")).rejects.toThrow(/preserved recovery state and helper/);
+    expect(JSON.parse(await fs.readFile(routerPaths().state, "utf8")).previousHandler).toBe("org.example.previous");
+    expect((await fs.stat(routerPaths().bundle)).isDirectory()).toBe(true);
+  });
+
+  it("can disable using persisted recovery state after an incomplete installation", async () => {
+    mockFailedNativeInstall(true);
+    const implementation = execFileMock.getMockImplementation()!;
+    let changed = false;
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (args[0] === "--register" && args[1] === routerPaths().id) {
+        changed = true;
+        done(new Error("registration interrupted after handler changed"), "", "");
+      } else if (changed && args[0] === "--handler") done(null, routerPaths().id, "");
+      else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("enable")).rejects.toThrow(/preserved recovery state and helper/);
+    const { bundle, agent, state, id } = routerPaths();
+    await expect(fs.access(agent)).rejects.toThrow();
+    vi.mocked(console.log).mockClear();
+    await callbackRouter("status");
+    expect(vi.mocked(console.log).mock.calls.flat().join(" ")).toContain("enabled and active");
+    execFileMock.mockImplementation((_file, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      done(null, args[0] === "--handler" ? id : "", "");
+    });
+    await callbackRouter("disable");
+    expect(execFileMock.mock.calls.some((call) => (call[1] as string[])[0] === "--register" && (call[1] as string[])[1] === "org.example.previous")).toBe(true);
+    for (const path of [bundle, agent, state]) await expect(fs.access(path)).rejects.toThrow();
+  });
+
+  it("keeps the installation when disable cannot determine the current URL handler", async () => {
+    await callbackRouter("enable");
+    const { bundle, agent, state } = routerPaths();
+    const before = await fs.readFile(state, "utf8");
+    setPlatform("darwin");
+    vi.stubEnv("CODEX_MULTI_NO_NATIVE_TOOLS", undefined);
+    await expect(callbackRouter("disable")).rejects.toThrow(/could not determine the current URL handler/);
+    expect(await fs.readFile(state, "utf8")).toBe(before);
+    expect((await fs.stat(bundle)).isDirectory()).toBe(true);
+    expect((await fs.stat(agent)).isFile()).toBe(true);
+    expect(execFileMock.mock.calls.some((call) => (call[1] as string[])[0] === "--register")).toBe(false);
+  });
+
+  it.each(["", "invalid_handler", "x".repeat(256)])("rejects an unrecoverable previous handler %s before registration", async (previous) => {
+    mockFailedNativeInstall();
+    const implementation = execFileMock.getMockImplementation()!;
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (args[0] === "--handler") done(null, previous, "");
+      else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("enable")).rejects.toThrow(/invalid previous URL handler/);
+    expect(execFileMock.mock.calls.some((call) => (call[1] as string[])[0] === "--register")).toBe(false);
+    await expect(fs.access(routerPaths().state)).rejects.toThrow();
+  });
+
+  it("keeps state and a compiled recovery helper when a missing bundle's handler cannot be restored", async () => {
+    await callbackRouter("enable");
+    const { bundle, state, id } = routerPaths();
+    await fs.rm(bundle, { recursive: true });
+    mockFailedNativeInstall(true);
+    const implementation = execFileMock.getMockImplementation()!;
+    execFileMock.mockImplementation((file: string, args: string[], optionsOrCallback, callback?: ExecCallback) => {
+      const done = typeof optionsOrCallback === "function" ? optionsOrCallback as ExecCallback : callback!;
+      if (args[0] === "--handler") done(null, id, "");
+      else if (args[0] === "--register") done(new Error("handler restore failed"), "", "");
+      else implementation(file, args, optionsOrCallback, callback);
+    });
+    await expect(callbackRouter("disable")).rejects.toThrow("handler restore failed");
+    expect(JSON.parse(await fs.readFile(state, "utf8")).previousHandler).toBe("com.openai.codex");
+    const recovery = (await fs.readdir(dirname(state))).find((name) => name.startsWith("recovery-"));
+    expect(recovery).toBeDefined();
+    expect(await fs.readFile(join(dirname(state), recovery!, "callback-router"), "utf8")).toBe("fake compiled helper");
   });
 
   it.each(["arm64", "x64"])("compiles %s helpers for the supported macOS 12 target", async (arch) => {
