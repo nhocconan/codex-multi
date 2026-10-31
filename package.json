@@ -1,6 +1,6 @@
 {
   "name": "codex-multi",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Run multiple Codex accounts with isolated logins, memorable aliases, and one shared skills setup.",
   "license": "MIT",
   "author": "Tien Le",
@@ -46,10 +46,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "audit:security": "node scripts/audit/atomic-writes.mjs",
     "prepare": "tsup",
     "version": "npm run verify && npm pack --dry-run",
     "prepublishOnly": "npm run verify",
-    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version"
+    "verify": "npm run audit:security && npm run typecheck && npm test && npm run build && node dist/cli.js --version"
   },
   "devDependencies": {
     "@types/cross-spawn": "6.0.6",
@@ -59,11 +60,11 @@
     "tsup": "^8.3.5",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.12"
   },
   "overrides": {
     "esbuild": "0.27.2",
-    "vite": "6.4.3"
+    "vite": "6.4.5"
   },
   "dependencies": {
     "cross-spawn": "7.0.6",

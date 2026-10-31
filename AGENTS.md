@@ -32,10 +32,32 @@
 - Use `node:path`; do not hard-code path separators.
 - Symlink tests must tolerate Windows environments without symlink privileges.
 
+## Security rules
+
+1. Replace files through `src/core/atomic-write.ts`: use unpredictable temporary
+   names, exclusive creation, permissions set before rename, and cleanup on failure.
+   Never implement a local `writeFile(temporary)` then `rename(temporary, target)`.
+2. Profile homes must be real directories separate from the base home. Managed
+   credentials and backups must be regular files with one link; reject symbolic
+   and hard links before reading, recovering, or launching a profile.
+3. Read bundle ownership from top-level plist string values, never text matches.
+   Reject duplicate keys and malformed documents before executing or deleting bundles.
+4. An unobserved desktop startup remains pending after timeout or error. Do not
+   replace credentials, rename, or remove it until startup is observed or the user
+   explicitly confirms cancellation through the pending-launch recovery command.
+
+| Concern | Rule | Enforcement |
+| --- | --- | --- |
+| Atomic replacement | §1 | `scripts/audit/atomic-writes.mjs`, `npm run verify`, CI security job |
+| Credential isolation | §2 | `test/auth-isolation.test.ts`, shared isolation guard |
+| Bundle ownership | §3 | `test/plist.test.ts`, desktop/router ownership tests |
+| Delayed desktop startup | §4 | `test/desktop-runtime.test.ts`, `test/reset-pending.test.ts` |
+
 ## Verification
 
 ```bash
 npm run typecheck
+npm run audit:security
 npm test
 npm run build
 node dist/cli.js --version

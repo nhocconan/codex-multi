@@ -11,10 +11,14 @@ vi.mock("node:child_process", async () => {
   Object.defineProperty(execMock, promisify.custom, { value: (...args: unknown[]) => execMock(...args) });
   return { execFile: execMock };
 });
-vi.mock("../src/core/desktop-runtime.ts", () => ({ waitForDesktopStartup: startupMock }));
+vi.mock("../src/core/desktop-runtime.ts", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/core/desktop-runtime.ts")>(),
+  waitForDesktopStartup: startupMock,
+}));
 vi.mock("../src/core/callback-router.ts", () => ({ ensureCallbackRouterHandler: callbackRouterMock }));
 import { desktopInfoPlist, launchDesktop } from "../src/core/desktop.ts";
 import type { Profile } from "../src/core/registry.ts";
+import { assertDesktopStopped, desktopPendingLaunchPath } from "../src/core/desktop-runtime.ts";
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
 let root = "";
@@ -29,6 +33,7 @@ beforeEach(async () => {
   Object.defineProperty(process, "platform", { ...originalPlatform, value: "darwin" });
   vi.stubEnv("CODEX_MULTI_HOME", root);
   vi.stubEnv("CODEX_MULTI_PROFILES_DIR", join(root, "profiles"));
+  vi.stubEnv("CODEX_MULTI_NO_NATIVE_TOOLS", undefined);
   for (const key of ["CODEX_HOME", "CODEX_ELECTRON_USER_DATA_PATH", "CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS",
     "CODEX_ACCESS_TOKEN", "OPENAI_API_KEY", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID"]) vi.stubEnv(key, "fake-ambient-value");
   vi.stubEnv("CUSTOM_MCP_TOKEN", "fake-mcp-token");
@@ -55,7 +60,7 @@ describe("official app launch boundary", () => {
 
   it("passes exact isolated paths and clears Codex auth without dropping custom MCP environment", async () => {
     await launchDesktop(profile);
-    const [file, args, options] = execMock.mock.calls[0]!;
+    const [file, args, options] = execMock.mock.calls.find(([file]) => file === "/usr/bin/open")!;
     expect(file).toBe("/usr/bin/open");
     expect(args).toEqual(["-n", (profile.desktop as { appPath: string }).appPath, "--env",
       `CODEX_HOME=${join(root, "profiles", "work")}`, "--args", `--user-data-dir=${join(root, "desktop", "work")}`]);
@@ -69,16 +74,41 @@ describe("official app launch boundary", () => {
   });
 
   it("reports native open failures without polling for startup", async () => {
-    execMock.mockRejectedValueOnce(new Error("open failed"));
+    execMock.mockImplementation(async (file) => {
+      if (file === "/usr/bin/open") throw new Error("open failed");
+      return { stdout: "", stderr: "" };
+    });
     await expect(launchDesktop(profile)).rejects.toThrow("open failed");
     expect(startupMock).not.toHaveBeenCalled();
     expect(callbackRouterMock).not.toHaveBeenCalled();
+    expect((await fs.lstat(desktopPendingLaunchPath("work"))).isFile()).toBe(true);
+    await expect(assertDesktopStopped("work")).rejects.toThrow("unresolved launch");
   });
 
   it("reports startup failures instead of claiming a successful launch", async () => {
     startupMock.mockRejectedValueOnce(new Error("did not start"));
     await expect(launchDesktop(profile)).rejects.toThrow("did not start");
     expect(callbackRouterMock).not.toHaveBeenCalled();
+    expect((await fs.lstat(desktopPendingLaunchPath("work"))).isFile()).toBe(true);
+    await expect(assertDesktopStopped("work")).rejects.toThrow("unresolved launch");
+  });
+
+  it("persists the private launch marker before invoking open", async () => {
+    execMock.mockImplementation(async (file) => {
+      if (file === "/usr/bin/open") {
+        const marker = await fs.stat(desktopPendingLaunchPath("work"));
+        if (originalPlatform.value !== "win32") expect(marker.mode & 0o777).toBe(0o600);
+      }
+      return { stdout: "", stderr: "" };
+    });
+    await launchDesktop(profile);
+  });
+
+  it("does not queue another open while a previous launch remains unresolved", async () => {
+    startupMock.mockRejectedValueOnce(new Error("did not start"));
+    await expect(launchDesktop(profile)).rejects.toThrow("did not start");
+    await expect(launchDesktop(profile)).rejects.toThrow("unresolved launch");
+    expect(execMock.mock.calls.filter(([file]) => file === "/usr/bin/open")).toHaveLength(1);
   });
 
   it("refreshes callback routing only after desktop startup completes", async () => {

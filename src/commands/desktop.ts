@@ -17,7 +17,8 @@ import {
 } from "../core/desktop.ts";
 import { buildProfileHome } from "../core/profile-home.ts";
 import { inspectAuth } from "../core/auth.ts";
-import { profileMutationLockPath } from "../core/paths.ts";
+import { profileLifecycleLockPath, profileMutationLockPath } from "../core/paths.ts";
+import { clearPendingDesktopLaunch } from "../core/desktop-runtime.ts";
 import { findRegistered, isSeparated, recoverProfileRemovalLocked, rewrite, type Profile } from "../core/registry.ts";
 import { withFileLock } from "../core/lock.ts";
 
@@ -169,6 +170,19 @@ export async function desktop(slug: string): Promise<void> {
     await launchDesktop(profile);
     console.log(`Opening ${profile.label} in the Codex desktop app...`);
   });
+}
+
+export async function resetPendingDesktop(slug: string, confirmedQuit: boolean): Promise<void> {
+  if (!confirmedQuit) {
+    throw new Error("quit the desktop app and cancel any queued launch, then run cpm desktop-reset-pending <slug> --confirm-quit");
+  }
+  await withFileLock(profileMutationLockPath(slug), async () => {
+    await withFileLock(profileLifecycleLockPath(slug), async () => {
+      if (!(await findRegistered(slug))) throw new Error(`unknown profile: ${slug}`);
+      await clearPendingDesktopLaunch(slug, true);
+    });
+  });
+  console.log(`Cleared the pending desktop launch for ${slug}.`);
 }
 
 /** Move a profile's desktop data directory after a slug rename. */

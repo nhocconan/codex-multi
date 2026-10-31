@@ -1,7 +1,7 @@
 import { callbackRouter } from "./core/callback-router.ts";
 import { basename } from "node:path";
 import { add } from "./commands/add.ts";
-import { desktop as desktopCommand, setDesktopEnabled } from "./commands/desktop.ts";
+import { desktop as desktopCommand, resetPendingDesktop, setDesktopEnabled } from "./commands/desktop.ts";
 import { doctor } from "./commands/doctor.ts";
 import { edit } from "./commands/edit.ts";
 import { launch } from "./commands/launch.ts";
@@ -57,6 +57,13 @@ export async function main(argv = process.argv): Promise<number> {
     const slug = rest[0];
     if (!slug) throw new Error(`usage: cpm desktop <slug>`);
     await desktopCommand(slug);
+    return 0;
+  }
+  if (subcommand === "desktop-reset-pending") {
+    const flags = parseFlags(rest);
+    const slug = flags.positionals[0];
+    if (!slug) throw new Error("usage: cpm desktop-reset-pending <slug> --confirm-quit");
+    await resetPendingDesktop(slug, hasFlag(flags, "confirm-quit"));
     return 0;
   }
   if (subcommand === "desktop-on" || subcommand === "desktop-off") {
@@ -136,6 +143,7 @@ const BOOLEAN_FLAGS = new Set([
   "desktop",
   "no-desktop",
   "separated",
+  "confirm-quit",
 ]);
 
 export function parseFlags(args: string[]): Flags {
@@ -197,6 +205,7 @@ Usage:
   cpm launch <slug> [-- args...]   Launch a profile
   cpm use <slug> [-- args...]      Alias for launch
   cpm desktop <slug>               Open a profile in the Codex desktop app (macOS)
+  cpm desktop-reset-pending <slug> --confirm-quit  Recover a cancelled desktop launch
   cpm callback-router <enable|disable|status>  Optional browser approval routing (macOS)
   cpm login <slug> [options]       Sign in again (rollback on failure)
   cpm edit <slug> [options]        Rename a profile or launcher

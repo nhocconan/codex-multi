@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { VERSION } from "../src/version.ts";
 
+const { resetPendingMock } = vi.hoisted(() => ({ resetPendingMock: vi.fn() }));
+vi.mock("../src/commands/desktop.ts", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../src/commands/desktop.ts")>(),
+  resetPendingDesktop: resetPendingMock,
+}));
+
 process.env.CODEX_MULTI_NO_AUTO_RUN = "1";
 const { main, parseFlags } = await import("../src/cli.ts");
 
 afterEach(() => {
   vi.restoreAllMocks();
+  resetPendingMock.mockReset();
 });
 
 describe("CLI flag parser", () => {
@@ -37,5 +44,13 @@ describe("CLI flag parser", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     await expect(main(["node", "codex-multi", "--version"])).resolves.toBe(0);
     expect(log).toHaveBeenCalledWith(VERSION);
+  });
+
+  it("passes only explicit quit acknowledgment to pending-launch recovery", async () => {
+    await main(["node", "cpm", "desktop-reset-pending", "work"]);
+    expect(resetPendingMock).toHaveBeenLastCalledWith("work", false);
+    await main(["node", "cpm", "desktop-reset-pending", "work", "--confirm-quit"]);
+    expect(resetPendingMock).toHaveBeenLastCalledWith("work", true);
+    await expect(main(["node", "cpm", "desktop-reset-pending"])).rejects.toThrow("usage:");
   });
 });

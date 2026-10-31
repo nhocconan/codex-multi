@@ -318,6 +318,35 @@ describe("alias installation", () => {
     expect(await isOwnedAliasBundle(foreign)).toBe(false);
   });
 
+  it.each(["comments", "nested", "duplicate", "integer"])("preserves foreign aliases with %s ownership markers", async (attack) => {
+    const foreign = desktopAliasPath("ChatGPT Work");
+    await createFakeApp(foreign, "Foreign");
+    const original = desktopInfoPlist("ChatGPT Work", "work", "blue");
+    const marker = /(<key>CodexMulti(?:Slug|Root)<\/key>\s*<string>[^<]*<\/string>)/g;
+    const forged = original.replace(marker, (entry) => {
+      if (attack === "comments") return `<!-- ${entry} -->`;
+      if (attack === "nested") return `<key>Nested${entry.includes("CodexMultiSlug") ? "Slug" : "Root"}</key><dict>${entry}</dict>`;
+      if (attack === "duplicate") return `${entry}${entry}`;
+      return entry.includes("CodexMultiSlug") ? entry.replace("<string>work</string>", "<integer>123</integer>") : entry;
+    });
+    const plistPath = join(foreign, "Contents", "Info.plist");
+    await fs.writeFile(plistPath, forged);
+    expect(await isOwnedAliasBundle(foreign)).toBe(false);
+    expect(await isOwnedAliasBundle(foreign, "work")).toBe(false);
+    await expect(installDesktopAlias(work, await detectDesktopApp())).rejects.toThrow(/belongs to another app/);
+    expect(await removeDesktopAliases("work")).toBe(0);
+    expect(await fs.readFile(plistPath, "utf8")).toBe(forged);
+  });
+
+  it("accepts exact top-level ownership markers and rejects a different slug", async () => {
+    const bundle = desktopAliasPath("ChatGPT Work");
+    await createFakeApp(bundle);
+    await fs.writeFile(join(bundle, "Contents", "Info.plist"), desktopInfoPlist("ChatGPT Work", "work", "blue"));
+    expect(await isOwnedAliasBundle(bundle)).toBe(true);
+    expect(await isOwnedAliasBundle(bundle, "work")).toBe(true);
+    expect(await isOwnedAliasBundle(bundle, "other")).toBe(false);
+  });
+
   it("moves the alias when the profile label changes", async () => {
     const app = await detectDesktopApp();
     await installDesktopAlias(work, app);

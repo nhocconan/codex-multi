@@ -37,15 +37,26 @@ export function profileHomesDir(): string {
   return envOr("CODEX_MULTI_PROFILES_DIR", join(dataRoot(), "profiles"));
 }
 
+export function validProfileSlug(slug: string): boolean {
+  return slug !== "multi" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+}
+
+function assertProfileSlug(slug: string): void {
+  if (!validProfileSlug(slug)) throw new Error("invalid profile slug");
+}
+
 export function profileHome(slug: string): string {
+  assertProfileSlug(slug);
   return join(profileHomesDir(), slug);
 }
 
 export function profileMutationLockPath(slug: string): string {
+  assertProfileSlug(slug);
   return join(profileHomesDir(), `.cpm-mutation-${slug}.lock`);
 }
 
 export function profileLifecycleLockPath(slug: string): string {
+  assertProfileSlug(slug);
   return join(profileHomesDir(), `.cpm-lifecycle-${slug}.lock`);
 }
 
@@ -117,6 +128,7 @@ export function resolveSelfBinary(): string {
 }
 
 export function launcherName(slug: string): string {
+  assertProfileSlug(slug);
   return `codex-${slug}`;
 }
 

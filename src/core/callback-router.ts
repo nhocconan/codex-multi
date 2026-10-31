@@ -8,10 +8,12 @@ import { fileURLToPath } from "node:url";
 import { dataRoot, profilesFile } from "./paths.ts";
 import { VERSION } from "../version.ts";
 import { withFileLock } from "./lock.ts";
+import { readPlistValues } from "./plist.ts";
 
 const exec = promisify(execFile);
 const LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 interface RouterState { enabled: true; previousHandler: string; id: string; bundle: string }
+const validHandler = (value: unknown): value is string => typeof value === "string" && value.length <= 255 && /^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(value);
 const harness = () => process.env.CODEX_MULTI_NO_NATIVE_TOOLS === "1";
 const xml = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
 export function routerPaths(): { bundle: string; agent: string; state: string; id: string } {
@@ -56,8 +58,7 @@ async function state(): Promise<RouterState | undefined> {
     const paths = routerPaths();
     if (!value || typeof value !== "object" || Array.isArray(value) ||
       value.enabled !== true || value.id !== paths.id || value.bundle !== paths.bundle ||
-      typeof value.previousHandler !== "string" || value.previousHandler.length > 255 ||
-      !/^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(value.previousHandler)) throw new Error("invalid callback router state; repair it before changing the URL handler");
+      !validHandler(value.previousHandler)) throw new Error("invalid callback router state; repair it before changing the URL handler");
     return value;
   } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw e; }
 }
@@ -65,11 +66,9 @@ async function ownedBundle(): Promise<boolean> {
   const path = routerPaths().bundle;
   try {
     if (!(await fs.lstat(path)).isDirectory()) return false;
-    // Avoid a dependency cycle with desktop.ts; markers are compared as escaped XML.
-    const plist = await fs.readFile(join(path, "Contents", "Info.plist"), "utf8");
-    return plist.includes(`<key>CodexMultiRouter</key><string>1</string>`) &&
-      plist.includes(`<key>CodexMultiRoot</key><string>${xml(dataRoot())}</string>`) &&
-      plist.includes(`<key>CFBundleIdentifier</key><string>${xml(routerPaths().id)}</string>`);
+    const plist = await readPlistValues(join(path, "Contents", "Info.plist"));
+    return plist.CodexMultiRouter === "1" && plist.CodexMultiRoot === dataRoot() &&
+      plist.CFBundleIdentifier === routerPaths().id;
   } catch { return false; }
 }
 async function ownedAgent(): Promise<boolean> {
@@ -147,6 +146,7 @@ export async function callbackRouter(command: string): Promise<void> {
       await bootout();
       let restoreBinary = binary;
       let recovery: string | undefined;
+      let restored = false;
       try {
         if (!(await ownedBundle())) {
           await fs.mkdir(dirname(paths.state), { recursive: true });
@@ -155,8 +155,10 @@ export async function callbackRouter(command: string): Promise<void> {
           await compileHelper(restoreBinary);
         }
         const handler = await native(restoreBinary, ["--handler"]);
+        if (!harness() && !validHandler(handler)) throw new Error("could not determine the current URL handler; preserved recovery state and helper");
         if (harness() || handler === current.id) await register(restoreBinary, current.previousHandler);
-      } finally { if (recovery) await fs.rm(recovery, { recursive: true, force: true }); }
+        restored = true;
+      } finally { if (recovery && restored) await fs.rm(recovery, { recursive: true, force: true }); }
       if (await ownedAgent()) await fs.unlink(paths.agent);
       await native(LSREGISTER, ["-u", paths.bundle]);
       if (await ownedBundle()) await fs.rm(paths.bundle, { recursive: true, force: true });
@@ -173,38 +175,52 @@ export async function callbackRouter(command: string): Promise<void> {
     const stageBinary = join(stage, "Contents", "MacOS", "callback-router");
     let previousHandler = "com.openai.codex";
     let installed = false;
-    let registered = false;
+    let recorded = false;
+    let handlerMayHaveChanged = false;
+    let agentMayHaveStarted = false;
     try {
       await fs.mkdir(dirname(stageBinary), { recursive: true });
       await fs.writeFile(join(stage, "Contents", "Info.plist"), routerPlist(dataRoot(), profilesFile(), paths.id));
       await compileHelper(stageBinary);
       if (!harness()) {
         await native("/usr/bin/codesign", ["--force", "--sign", "-", stage]);
-        previousHandler = (await native(stageBinary, ["--handler"])) || previousHandler;
+        previousHandler = await native(stageBinary, ["--handler"]);
       }
-      if (!/^[a-zA-Z0-9_.-]+$/.test(previousHandler)) throw new Error("invalid previous URL handler");
+      if (!validHandler(previousHandler) || previousHandler === paths.id) throw new Error("invalid previous URL handler; refusing to enable without a recoverable handler");
       if (await exists(paths.bundle)) throw new Error("callback router destination appeared during installation");
       await fs.rename(stage, paths.bundle); installed = true;
+      await fs.mkdir(dirname(paths.state), { recursive: true, mode: 0o700 });
+      const recoveryState = await fs.open(paths.state, "wx", 0o600);
+      recorded = true;
+      try {
+        await recoveryState.writeFile(JSON.stringify({ enabled: true, previousHandler, id: paths.id, bundle: paths.bundle }) + "\n");
+        await recoveryState.sync();
+      } finally { await recoveryState.close(); }
+      handlerMayHaveChanged = true;
       await native(LSREGISTER, ["-f", paths.bundle]);
-      registered = true; await register(binary, paths.id);
+      await register(binary, paths.id);
       await fs.mkdir(dirname(paths.agent), { recursive: true });
       await fs.writeFile(paths.agent, routerAgentPlist(binary, paths.id), { flag: "wx", mode: 0o600 });
+      agentMayHaveStarted = true;
       await native("/bin/launchctl", ["bootstrap", domain(), paths.agent]);
-      await fs.mkdir(dirname(paths.state), { recursive: true, mode: 0o700 });
-      await fs.writeFile(paths.state, JSON.stringify({ enabled: true, previousHandler, id: paths.id, bundle: paths.bundle }) + "\n", { flag: "wx", mode: 0o600 });
       console.log("Callback routing enabled. Choose the profile that started each browser approval; disable with cpm callback-router disable.");
     } catch (error) {
-      await bootout();
-      if (registered) {
-        try { await register(binary, previousHandler); }
-        catch {
-          await fs.mkdir(dirname(paths.state), { recursive: true, mode: 0o700 });
-          await fs.writeFile(paths.state, JSON.stringify({ enabled: true, previousHandler, id: paths.id, bundle: paths.bundle }) + "\n", { flag: "wx", mode: 0o600 });
-          throw new Error("callback router setup failed and its URL handler could not be restored; preserved recovery state and helper. Run cpm callback-router disable to retry", { cause: error });
-        }
+      let rollbackFailed = false;
+      if (agentMayHaveStarted) {
+        try { await bootout(); } catch { rollbackFailed = true; }
       }
+      if (handlerMayHaveChanged) {
+        try {
+          if (!(await ownedBundle())) throw new Error("callback router bundle ownership changed during setup");
+          const handler = await native(binary, ["--handler"]);
+          if (!harness() && !validHandler(handler)) throw new Error("could not determine the current URL handler");
+          if (harness() || handler === paths.id) await register(binary, previousHandler);
+        } catch { rollbackFailed = true; }
+      }
+      if (rollbackFailed) throw new Error("callback router setup failed and rollback could not be confirmed; preserved recovery state and helper. Run cpm callback-router disable to retry", { cause: error });
       if (await ownedAgent()) await fs.unlink(paths.agent);
       if (installed && await ownedBundle()) await fs.rm(paths.bundle, { recursive: true, force: true });
+      if (recorded) await fs.unlink(paths.state);
       throw error;
     } finally { await fs.rm(stageRoot, { recursive: true, force: true }); }
   });

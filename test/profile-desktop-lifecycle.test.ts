@@ -305,6 +305,20 @@ describe("profile desktop data rename", () => {
 });
 
 describe("desktop command profile home", () => {
+  it("refuses an absent base/profile collision before desktop launch or config writes", async () => {
+    await append(profile);
+    const originalBase = join(root, "base");
+    await fs.writeFile(join(originalBase, "auth.json"), '{"OPENAI_API_KEY":"fake-original"}');
+    await fs.writeFile(join(originalBase, "config.toml"), 'model = "original"\n');
+    const launch = vi.spyOn(desktopCore, "launchDesktop").mockResolvedValue(undefined);
+    process.env.CODEX_MULTI_BASE_HOME = profileHome("work");
+    await expect(desktop("work")).rejects.toThrow("separate from the base");
+    expect(launch).not.toHaveBeenCalled();
+    await expect(fs.lstat(profileHome("work"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(join(originalBase, "auth.json"), "utf8")).toBe('{"OPENAI_API_KEY":"fake-original"}');
+    expect(await fs.readFile(join(originalBase, "config.toml"), "utf8")).toBe('model = "original"\n');
+  });
+
   it("launches a separated profile with private skills, plugins, and sessions", async () => {
     await seedProfile(true);
     const registered = await findRegistered("work");

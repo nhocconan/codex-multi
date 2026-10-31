@@ -1,7 +1,8 @@
 import { promises as fs, type Dirent } from "node:fs";
 import { join } from "node:path";
 import { baseCodexHome, profileHome } from "./paths.ts";
-import { atomicWrite } from "./auth.ts";
+import { assertProfileAuthIsolation } from "./auth.ts";
+import { atomicWrite } from "./atomic-write.ts";
 
 const PRIVATE_NAMES = new Set([
   "auth.json",
@@ -36,7 +37,9 @@ export function isPrivateName(name: string): boolean {
 export async function buildProfileHome(slug: string, separated = false): Promise<string> {
   const base = baseCodexHome();
   const destination = profileHome(slug);
+  await assertProfileAuthIsolation(slug);
   await fs.mkdir(destination, { recursive: true, mode: 0o700 });
+  await assertProfileAuthIsolation(slug);
 
   let entries: Dirent[] = [];
   try {
