@@ -85,6 +85,44 @@ describe("strict property list strings", () => {
     await expect(readPlistValues(path)).rejects.toThrow();
   });
 
+  it("accepts the file size boundary and rejects oversized files before parsing", async () => {
+    const directory = await fs.mkdtemp(join(tmpdir(), "cpm-plist-"));
+    directories.push(directory);
+    const path = join(directory, "Info.plist");
+    const document = wrap('<key>Owner</key><string>real</string>');
+    await fs.writeFile(path, document + " ".repeat(1024 * 1024 - Buffer.byteLength(document)));
+    expect(await readPlistValues(path)).toEqual({ Owner: "real" });
+    await fs.appendFile(path, " ");
+    await expect(readPlistValues(path)).rejects.toThrow("Invalid or unsupported property list");
+  });
+
+  it("rejects linked ownership metadata without following its target", async (context) => {
+    const directory = await fs.mkdtemp(join(tmpdir(), "cpm-plist-"));
+    directories.push(directory);
+    const original = join(directory, "Original.plist");
+    const linked = join(directory, "Info.plist");
+    const contents = wrap('<key>Owner</key><string>real</string>');
+    await fs.writeFile(original, contents);
+    try { await fs.symlink(original, linked); }
+    catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+    await expect(readPlistValues(linked)).rejects.toThrow("Invalid or unsupported property list");
+    expect(await fs.readFile(original, "utf8")).toBe(contents);
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a FIFO without waiting for a writer", async () => {
+    const directory = await fs.mkdtemp(join(tmpdir(), "cpm-plist-"));
+    directories.push(directory);
+    const path = join(directory, "Info.plist");
+    await promisify(execFile)("mkfifo", [path]);
+    await expect(readPlistValues(path)).rejects.toThrow("Invalid or unsupported property list");
+  });
+
   it.skipIf(process.platform !== "darwin")("reads Apple-generated binary plists while retaining scalar types", async () => {
     const directory = await fs.mkdtemp(join(tmpdir(), "cpm-plist-"));
     directories.push(directory);

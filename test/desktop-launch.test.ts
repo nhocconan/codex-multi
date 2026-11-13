@@ -73,6 +73,48 @@ describe("official app launch boundary", () => {
     expect(callbackRouterMock.mock.invocationCallOrder[0]).toBeGreaterThan(startupMock.mock.invocationCallOrder[0]!);
   });
 
+  it("keeps Electron sign-in data private, including an existing profile directory", async () => {
+    const dataDir = join(root, "desktop", "work");
+    await fs.mkdir(dataDir, { recursive: true, mode: 0o755 });
+    await launchDesktop(profile);
+    expect((await fs.lstat(dataDir)).isDirectory()).toBe(true);
+    if (originalPlatform.value !== "win32") {
+      expect((await fs.stat(join(root, "desktop"))).mode & 0o777).toBe(0o700);
+      expect((await fs.stat(dataDir)).mode & 0o777).toBe(0o700);
+    }
+  });
+
+  it.for(["parent", "profile"])("refuses a linked Electron data %s before launching or writing through it", async (kind, context) => {
+    const foreign = join(root, "foreign-desktop");
+    const parent = join(root, "desktop");
+    await fs.mkdir(foreign);
+    await fs.writeFile(join(foreign, "sentinel"), "foreign data");
+    if (kind === "profile") await fs.mkdir(parent);
+    const linked = kind === "parent" ? parent : join(parent, "work");
+    try { await fs.symlink(foreign, linked, "junction"); }
+    catch (error) {
+      if (originalPlatform.value === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+    await expect(launchDesktop(profile)).rejects.toThrow("desktop user data must use real directories");
+    expect(execMock.mock.calls.some(([file]) => file === "/usr/bin/open")).toBe(false);
+    expect(await fs.readdir(foreign)).toEqual(["sentinel"]);
+    expect(await fs.readFile(join(foreign, "sentinel"), "utf8")).toBe("foreign data");
+    await expect(fs.lstat(desktopPendingLaunchPath("work"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("refuses a file in place of the Electron data directory", async () => {
+    await fs.mkdir(join(root, "desktop"));
+    const path = join(root, "desktop", "work");
+    await fs.writeFile(path, "foreign file");
+    await expect(launchDesktop(profile)).rejects.toThrow("desktop user data must use real directories");
+    expect(await fs.readFile(path, "utf8")).toBe("foreign file");
+    expect(execMock.mock.calls.some(([file]) => file === "/usr/bin/open")).toBe(false);
+  });
+
   it("reports native open failures without polling for startup", async () => {
     execMock.mockImplementation(async (file) => {
       if (file === "/usr/bin/open") throw new Error("open failed");

@@ -1,9 +1,6 @@
-import { promises as fs } from "node:fs";
+import { constants, promises as fs } from "node:fs";
 import { execFile } from "node:child_process";
-import { resolve } from "node:path";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
 const MAX_BYTES = 1024 * 1024;
 const MAX_DEPTH = 64;
 type Value = string | Record<string, unknown> | unknown[] | number | boolean | null;
@@ -122,13 +119,32 @@ export function parsePlistStrings(xml: string): Record<string, string> {
 }
 
 export async function readPlistValues(path: string): Promise<Record<string, string>> {
-  const file = await fs.readFile(path);
-  if (file.length > MAX_BYTES) invalid();
+  const stat = await fs.lstat(path);
+  if (!stat.isFile() || stat.size > MAX_BYTES) invalid();
+  const handle = await fs.open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  const chunks: Buffer[] = [];
+  let length = 0;
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.size > MAX_BYTES) invalid();
+    while (length <= MAX_BYTES) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, MAX_BYTES + 1 - length));
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      length += bytesRead;
+      if (length > MAX_BYTES) invalid();
+      chunks.push(chunk.subarray(0, bytesRead));
+    }
+  } finally { await handle.close(); }
+  const file = Buffer.concat(chunks, length);
   if (file.subarray(0, 8).equals(Buffer.from("bplist00"))) {
     if (process.platform !== "darwin") invalid();
-    const { stdout } = await execFileAsync("/usr/bin/plutil", ["-convert", "xml1", "-o", "-", "--", resolve(path)], {
-      maxBuffer: MAX_BYTES,
-      timeout: 5000,
+    const stdout = await new Promise<string>((resolve, reject) => {
+      const child = execFile("/usr/bin/plutil", ["-convert", "xml1", "-o", "-", "--", "-"], {
+        maxBuffer: MAX_BYTES, timeout: 5000,
+      }, (error, output) => error ? reject(error) : resolve(output));
+      child.stdin!.on("error", reject);
+      child.stdin!.end(file);
     });
     return parsePlistStrings(stdout);
   }

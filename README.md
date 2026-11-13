@@ -195,6 +195,13 @@ OpenAI documents that Codex stores file-based credentials in
 `$CODEX_HOME/auth.json` and that `CODEX_HOME` defaults to `~/.codex`.
 Codex Multi uses that supported boundary:
 
+The manager enforces file-based credential storage at the CLI invocation boundary,
+including when a project or named Codex config profile has different defaults.
+Overrides that select another credential store are rejected. Ambient
+`CODEX_API_KEY`, `CODEX_ACCESS_TOKEN`, OpenAI login variables, and workload identity
+selectors are removed before launch; custom MCP/provider environment remains
+available.
+
 ```text
 ~/.config/codex-multi/
 ├── profiles.json
@@ -226,6 +233,11 @@ On every launch the manager:
 5. starts the current `codex` binary with the profile’s `CODEX_HOME`;
 6. relays signals and returns Codex’s exit code.
 
+Managed TOML is parsed and regenerated, so its comments and formatting normalize;
+the base file is unchanged. Repeated launches preserve an unchanged private
+config file instead of replacing it. Invalid TOML reports a repair instruction
+without printing config contents.
+
 Codex can refresh its tokens normally because each profile’s `auth.json` is a
 real writable file. Process-local directories such as `ipc`, `process_manager`,
 and temporary files also stay private to each profile. The registry contains
@@ -252,6 +264,11 @@ cpm edit work --no-desktop
 # Straight from the terminal
 cpm desktop work
 ```
+
+Use `cpm desktop work` for desktop launches. The native `codex-work app` path is
+blocked because it cannot select the manager's isolated Electron data directory;
+its help remains available. Quit that profile's app before `login`, `logout`, or
+credential recovery, including when global Codex options precede the command.
 
 ### Enable desktop for an existing profile
 
@@ -448,10 +465,16 @@ npm run build
 npm pack --dry-run
 ```
 
+With the official Codex CLI installed, `npm run test:native-cli` checks real
+argument parsing and file-based credential selection using a temporary home and
+synthetic credentials. It sends no model requests and never opens the app.
+
 The published CLI keeps its runtime surface small: `cross-spawn` safely runs
 Codex’s Windows `.cmd` shim, `proper-lockfile` protects profile lifecycle
 operations across processes and recovers stale locks after crashes, and the
 dependency-free `pngjs` recolors alias icons without native image libraries.
+`smol-toml` preserves configuration semantics while enforcing isolated credential
+storage; its license is included in `THIRD_PARTY_NOTICES.md`.
 
 ## License
 

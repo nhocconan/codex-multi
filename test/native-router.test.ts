@@ -19,6 +19,7 @@ describe.skipIf(process.platform !== "darwin")("native callback router", () => {
     await execFileAsync("swiftc", [
       resolve("native", "macos", "CallbackRouter.swift"),
       "-o", executable,
+      "-module-cache-path", join(root, "module-cache"),
       "-framework", "AppKit",
       "-framework", "CoreServices",
     ], { timeout: 30_000 });

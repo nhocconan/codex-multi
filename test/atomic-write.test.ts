@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { atomicWrite } from "../src/core/atomic-write.ts";
+import { atomicWrite, atomicWriteIfChanged } from "../src/core/atomic-write.ts";
 
 vi.mock("node:crypto", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:crypto")>();
@@ -26,6 +26,60 @@ afterEach(async () => {
 });
 
 describe("private atomic writes", () => {
+  it("skips an unchanged private file without exposing a temporary file", async () => {
+    const path = join(root, "config.toml");
+    await atomicWrite(path, "unchanged");
+    const rename = vi.spyOn(fs, "rename");
+    await atomicWriteIfChanged(path, "unchanged");
+    expect(rename).not.toHaveBeenCalled();
+    expect(await fs.readdir(root)).toEqual(["config.toml"]);
+  });
+
+  it("replaces changed content and repairs permissions even when content matches", async () => {
+    const path = join(root, "config.toml");
+    await atomicWrite(path, "original");
+    await atomicWriteIfChanged(path, "changed");
+    expect(await fs.readFile(path, "utf8")).toBe("changed");
+    if (process.platform !== "win32") {
+      await fs.chmod(path, 0o644);
+      await atomicWriteIfChanged(path, "changed");
+      expect((await fs.stat(path)).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("replaces an unchanged hard link without touching its other name", async () => {
+    const original = join(root, "original");
+    const path = join(root, "config.toml");
+    await atomicWrite(original, "unchanged");
+    await fs.link(original, path);
+
+    await atomicWriteIfChanged(path, "unchanged");
+
+    expect((await fs.stat(path)).nlink).toBe(1);
+    expect((await fs.stat(original)).nlink).toBe(1);
+    expect(await fs.readFile(original, "utf8")).toBe("unchanged");
+  });
+
+  it("replaces an unchanged symbolic link without following or changing its target", async (context) => {
+    const original = join(root, "original");
+    const path = join(root, "config.toml");
+    await atomicWrite(original, "unchanged");
+    try {
+      await fs.symlink(original, path);
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+
+    await atomicWriteIfChanged(path, "unchanged");
+
+    expect((await fs.lstat(path)).isSymbolicLink()).toBe(false);
+    expect(await fs.readFile(original, "utf8")).toBe("unchanged");
+  });
+
   it.each(["EPERM", "EACCES", "EBUSY"])("retries transient Windows %s replacement failures without deleting the destination", async (code) => {
     Object.defineProperty(process, "platform", { ...originalPlatform, value: "win32" });
     const path = join(root, "registry.json");

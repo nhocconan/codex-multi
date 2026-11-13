@@ -24,6 +24,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   for (const key of [
     "CODEX_MULTI_BASE_HOME",
     "CODEX_MULTI_HOME",
@@ -49,7 +50,7 @@ describe("profile login", () => {
     const observed = JSON.parse(
       await fs.readFile(join(root, "login.json"), "utf8"),
     ) as { args: string[]; home: string };
-    expect(observed.args).toEqual(args);
+    expect(observed.args).toEqual(["-c", 'cli_auth_credentials_store="file"', ...args]);
     expect(observed.home).toBe(join(root, "manager", "profiles", "work"));
   });
 
@@ -63,10 +64,37 @@ describe("profile login", () => {
     await login(profile, { [option]: envName });
     const observed = JSON.parse(
       await fs.readFile(join(root, "login.json"), "utf8"),
-    ) as { args: string[]; stdin: string; hasAmbientAuth: boolean };
-    expect(observed.args).toEqual(["login", flag]);
+    ) as { args: string[]; stdin: string; hasAmbientAuth: boolean; hasSecretSource: boolean };
+    expect(observed.args).toEqual(["-c", 'cli_auth_credentials_store="file"', "login", flag]);
     expect(observed.stdin).toBe("test-secret\n");
     expect(observed.hasAmbientAuth).toBe(false);
+    expect(observed.hasSecretSource).toBe(false);
+  });
+
+  it("scrubs ambient organization, desktop data and case variants during login", async () => {
+    for (const key of ["CODEX_API_KEY", "OPENAI_FEDERATION_RULE_ID", "OPENAI_IDENTITY_TOKEN_FILE", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "CODEX_ELECTRON_USER_DATA_PATH",
+      "CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS", "openai_api_key"]) vi.stubEnv(key, "ambient");
+    vi.stubEnv("CPM_CUSTOM_MCP_TOKEN", "fake-mcp");
+    await login(profile);
+    const observed = JSON.parse(await fs.readFile(join(root, "login.json"), "utf8"));
+    expect(observed.forbiddenKeys).toEqual([]);
+    expect(observed.customMcp).toBe("fake-mcp");
+  });
+
+  it.each([
+    { deviceAuth: true, apiKeyEnv: "CPM_TEST_API_KEY" },
+    { deviceAuth: true, accessTokenEnv: "CPM_TEST_ACCESS_TOKEN" },
+  ])("rejects contradictory login modes before creating a home: %j", async (options) => {
+    await expect(login(profile, options)).rejects.toThrow("cannot be used together");
+    await expect(fs.lstat(join(root, "manager"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not remove isolated CODEX_HOME when it is also the secret source name", async () => {
+    vi.stubEnv("CODEX_HOME", "fake-secret");
+    await login(profile, { apiKeyEnv: "CODEX_HOME" });
+    const observed = JSON.parse(await fs.readFile(join(root, "login.json"), "utf8"));
+    expect(observed.home).toBe(join(root, "manager", "profiles", "work"));
+    expect(observed.stdin).toBe("fake-secret\n");
   });
 
   it("restores the previous auth byte-for-byte when Codex login fails", async () => {
@@ -143,6 +171,9 @@ const finish = () => {
     home: process.env.CODEX_HOME,
     stdin: input,
     hasAmbientAuth: Boolean(process.env.OPENAI_API_KEY || process.env.CODEX_ACCESS_TOKEN),
+    hasSecretSource: Boolean(process.env.CPM_TEST_API_KEY || process.env.CPM_TEST_ACCESS_TOKEN),
+    customMcp: process.env.CPM_CUSTOM_MCP_TOKEN,
+    forbiddenKeys: Object.keys(process.env).filter(key => ["OPENAI_API_KEY", "CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "OPENAI_FEDERATION_RULE_ID", "OPENAI_IDENTITY_TOKEN_FILE", "OPENAI_ORG_ID", "OPENAI_PROJECT_ID", "CODEX_ELECTRON_USER_DATA_PATH", "CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS"].includes(key.toUpperCase())),
   }));
   const exitCode = Number(process.env.CPM_LOGIN_EXIT || 0);
   if (exitCode === 0) {

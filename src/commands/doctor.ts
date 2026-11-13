@@ -1,5 +1,6 @@
 import { existsSync, promises as fs } from "node:fs";
 import { basename, join } from "node:path";
+import { parse } from "smol-toml";
 import { authFingerprint, inspectAuth } from "../core/auth.ts";
 import {
   desktopAliasName,
@@ -18,7 +19,7 @@ import {
   resolveCodexBinary,
 } from "../core/paths.ts";
 import { command, isSeparated, load } from "../core/registry.ts";
-import { launcherTargetDescription } from "../core/wrappers.ts";
+import { launcherTargetDescription, readOwnedLauncher } from "../core/wrappers.ts";
 
 export async function doctor(): Promise<number> {
   const profiles = await load();
@@ -49,33 +50,50 @@ export async function doctor(): Promise<number> {
     console.log(`    home     : ${home}`);
     try {
       const config = await fs.readFile(join(home, "config.toml"), "utf8");
-      if (!/^cli_auth_credentials_store\s*=\s*"file"/m.test(config)) {
-        errors.push(`${profile.label}: config does not force file credential storage`);
+      try {
+        const parsed = parse(config, { integersAsBigInt: true });
+        if (parsed.cli_auth_credentials_store !== "file") {
+          errors.push(`${profile.label}: config does not force file credential storage; run cpm sync`);
+        }
+        if (parsed.profiles && typeof parsed.profiles === "object" && !Array.isArray(parsed.profiles)) {
+          const overridesAuth = Object.values(parsed.profiles).some((entry) =>
+            entry && typeof entry === "object" && !Array.isArray(entry)
+            && "cli_auth_credentials_store" in entry
+            && entry.cli_auth_credentials_store !== "file",
+          );
+          if (overridesAuth) errors.push(`${profile.label}: a named config profile overrides file credential storage; run cpm sync`);
+        }
+      } catch {
+        errors.push(`${profile.label}: managed config.toml has invalid TOML; run cpm sync`);
       }
     } catch {
-      errors.push(`${profile.label}: managed config.toml is missing`);
+      errors.push(`${profile.label}: managed config.toml is missing or unreadable; run cpm sync`);
     }
     try {
       const homeEntries = await fs.readdir(home);
       for (const name of homeEntries) {
         if (!name.endsWith(".sqlite") || isSeparated(profile)) continue;
         const entryPath = join(home, name);
-        const stat = await fs.lstat(entryPath);
-        if (!stat.isSymbolicLink()) {
-          const basePath = join(baseCodexHome(), name);
-          try {
-            const [entryStat, baseStat] = await Promise.all([
-              fs.stat(entryPath),
-              fs.stat(basePath),
-            ]);
-            if (entryStat.dev !== baseStat.dev || entryStat.ino !== baseStat.ino) {
-              errors.push(
-                `${profile.label}: ${name} is detached from base Codex state; run cpm sync to repair`,
-              );
-            }
-          } catch {
-            // Base doesn't have it or stat failed
+        const basePath = join(baseCodexHome(), name);
+        let baseStat;
+        try {
+          // Windows file identifiers can exceed Number's exact integer range.
+          baseStat = await fs.stat(basePath, { bigint: true });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+            errors.push(`${profile.label}: could not inspect base ${name}`);
           }
+          continue;
+        }
+        try {
+          const entryStat = await fs.stat(entryPath, { bigint: true });
+          if (entryStat.dev !== baseStat.dev || entryStat.ino !== baseStat.ino) {
+            errors.push(
+              `${profile.label}: ${name} is detached from base Codex state; run cpm sync to repair`,
+            );
+          }
+        } catch {
+          errors.push(`${profile.label}: ${name} is missing or unreadable; run cpm sync to repair`);
         }
       }
     } catch {
@@ -83,10 +101,10 @@ export async function doctor(): Promise<number> {
     }
     const launcher = launcherPath(profile.slug);
     try {
-      const source = await fs.readFile(launcher, "utf8");
-      console.log(`    launcher : ${source.includes("codex-multi launcher") ? "ready" : "foreign file"}`);
-      if (!source.includes("codex-multi launcher")) {
-        errors.push(`${profile.label}: launcher path is owned by another file`);
+      const source = await readOwnedLauncher(launcher);
+      console.log(`    launcher : ${source !== undefined ? "ready" : "unsafe or foreign file"}`);
+      if (source === undefined) {
+        errors.push(`${profile.label}: launcher path is unsafe or owned by another file`);
       }
     } catch {
       console.log("    launcher : missing");

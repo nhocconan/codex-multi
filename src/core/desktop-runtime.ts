@@ -67,7 +67,7 @@ export function desktopPidsFromPs(output: string, dataDir: string): number[] {
     const match = /^\s*(\d+)\s+(.+)$/.exec(line);
     if (!match) return [];
     const args = match[2]!;
-    if (!args.includes(".app/Contents/MacOS/") || /\s--type=/.test(args)) return [];
+    if (!args.includes(".app/Contents/MacOS/") || /\s--type(?:=|\s)/.test(args)) return [];
     const flag = ` --user-data-dir=${dataDir}`;
     const offset = args.indexOf(flag);
     if (offset < 0) return [];
@@ -80,7 +80,9 @@ export function desktopPidsFromPs(output: string, dataDir: string): number[] {
 export async function runningDesktopPids(slug: string): Promise<number[]> {
   if (process.platform !== "darwin" || process.env.CODEX_MULTI_NO_NATIVE_TOOLS === "1") return [];
   try {
-    const { stdout } = await execFileAsync("/bin/ps", ["-axo", "pid=,args="], { maxBuffer: 8 * 1024 * 1024 });
+    const { stdout } = await execFileAsync("/bin/ps", ["-ww", "-axo", "pid=,args="], {
+      maxBuffer: 8 * 1024 * 1024, timeout: 5000,
+    });
     return desktopPidsFromPs(stdout, join(dataRoot(), "desktop", slug));
   } catch (error) {
     throw new Error(`could not check running desktop profiles: ${(error as Error).message}`, { cause: error });

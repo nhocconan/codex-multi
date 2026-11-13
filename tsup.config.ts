@@ -15,7 +15,7 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   // Desktop aliases keep a durable snapshot outside ephemeral npx caches.
-  noExternal: ["cross-spawn", "proper-lockfile", "pngjs"],
+  noExternal: ["cross-spawn", "proper-lockfile", "pngjs", "smol-toml"],
   define: {
     __PACKAGE_VERSION__: JSON.stringify(packageVersion),
   },

@@ -30,7 +30,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.CPM_RELOGIN_OUTPUT, JSON.stringify({args, home: process.env.CODEX_HOME}) + "\\n");
-if (args[0] === "login" && !args.slice(1).some(arg => ["status", "help", "--help", "-h"].includes(arg))) {
+const command = args.find(arg => ["login", "logout", "exec", "app"].includes(arg));
+if (command === "login" && !args.some(arg => ["status", "help", "--help", "-h"].includes(arg))) {
   if (!process.env.CPM_RELOGIN_NO_AUTH) {
     fs.writeFileSync(path.join(process.env.CODEX_HOME, "auth.json"), '{"OPENAI_API_KEY":"fake-new"}');
   }
@@ -58,7 +59,12 @@ afterEach(async () => {
 });
 
 async function calls(): Promise<{ args: string[]; home: string }[]> {
-  return (await fs.readFile(join(root, "calls.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+  return (await fs.readFile(join(root, "calls.jsonl"), "utf8")).trim().split("\n").map(line => {
+    const call = JSON.parse(line) as { args: string[]; home: string };
+    expect(call.args.slice(0, 2)).toEqual(["-c", 'cli_auth_credentials_store="file"']);
+    call.args.splice(0, 2);
+    return call;
+  });
 }
 
 function tty(interactive: boolean): void {
@@ -67,6 +73,98 @@ function tty(interactive: boolean): void {
 }
 
 describe("logged-out profile launchers", () => {
+  it("blocks recovery from replacing credentials under an active desktop", async () => {
+    await fs.mkdir(join(root, "manager", "profiles", "conan"), { recursive: true });
+    await fs.writeFile(authPath("conan"), "{}");
+    const backup = `${authPath("conan")}.cpm-backup`;
+    await fs.writeFile(backup, '{"OPENAI_API_KEY":"fake-backup"}');
+    vi.mocked(assertDesktopStopped).mockRejectedValue(new Error("Close desktop first"));
+    await expect(launch("conan", ["exec", "hello"])).rejects.toThrow("Close desktop first");
+    expect(await fs.readFile(authPath("conan"), "utf8")).toBe("{}");
+    expect(await fs.readFile(backup, "utf8")).toBe('{"OPENAI_API_KEY":"fake-backup"}');
+    await expect(calls()).rejects.toMatchObject({ code: "ENOENT" });
+  });
+  async function previousAuth(): Promise<string> {
+    await fs.mkdir(join(root, "manager", "profiles", "conan"), { recursive: true });
+    const previous = '{"OPENAI_API_KEY":"fake-existing","future":true}';
+    await fs.writeFile(authPath("conan"), previous);
+    return previous;
+  }
+
+  it.each([
+    ["-C", "workspace", "login", "--device-auth"],
+    ["-c", 'model="test"', "login", "--device-auth"],
+    ["--config=model=\"test\"", "--strict-config", "login", "--device-auth"],
+    ["-Cworkspace", "--enable", "example", "login", "--device-auth"],
+    ["--image=fixture.png", "login", "--device-auth"],
+    ["-ifixture.png", "login", "--device-auth"],
+  ])("blocks prefixed login while desktop is active: %j", async (...args) => {
+    const previous = await previousAuth();
+    vi.mocked(assertDesktopStopped).mockRejectedValue(new Error("Close desktop first"));
+    await expect(launch("conan", args)).rejects.toThrow("Close desktop first");
+    await expect(calls()).rejects.toMatchObject({ code: "ENOENT" });
+    expect(await fs.readFile(authPath("conan"), "utf8")).toBe(previous);
+  });
+
+  it("preserves global prefix arguments and restores auth after a prefixed login failure", async () => {
+    const previous = await previousAuth();
+    const args = ["-c", 'model="test"', "login", "--device-auth"];
+    vi.stubEnv("CPM_RELOGIN_EXIT", "7");
+
+    await expect(launch("conan", args)).rejects.toThrow("status 7");
+
+    expect((await calls())[0]?.args).toEqual(args);
+    expect(await fs.readFile(authPath("conan"), "utf8")).toBe(previous);
+    await expect(fs.stat(`${authPath("conan")}.cpm-backup`)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([["logout"], ["-c", 'model="test"', "logout"], ["-ifixture.png", "logout"]])("blocks logout while desktop is active: %j", async (...args) => {
+    const previous = await previousAuth();
+    vi.mocked(assertDesktopStopped).mockRejectedValue(new Error("Close desktop first"));
+
+    await expect(launch("conan", args)).rejects.toThrow("Close desktop first");
+
+    expect(await fs.readFile(authPath("conan"), "utf8")).toBe(previous);
+    await expect(calls()).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([
+    ["exec", "login"], ["exec", "--", "login"], ["exec", "logout"],
+    ["-C", "login", "exec", "hello"], ["--image", "login"],
+  ])("preserves prompts and root-option values literally: %j", async (...args) => {
+    await previousAuth();
+    await expect(launch("conan", args)).resolves.toBe(0);
+    expect((await calls())[0]?.args).toEqual(args);
+    expect(assertDesktopStopped).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["--help"], ["--version"], ["-C", "workspace", "--help"],
+    ["-c", 'model="test"', "login", "status"], ["login", "-c", 'model="test"', "status"],
+    ["-C", "workspace", "login", "--help"], ["logout", "--help"], ["app", "--help"],
+  ])("allows read-only help/status without credentials: %j", async (...args) => {
+    await expect(launch("conan", args)).resolves.toBe(0);
+    expect((await calls())[0]?.args).toEqual(args);
+    expect(assertDesktopStopped).not.toHaveBeenCalled();
+    await expect(fs.stat(authPath("conan"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([["app"], ["-C", "workspace", "app"], ["app", "workspace"], ["app", "--", "--help"]])("directs native desktop launches to the isolated command: %j", async (...args) => {
+    await expect(launch("conan", args)).rejects.toThrow("Use cpm desktop conan");
+    await expect(calls()).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("maps app help to native help without opening a workspace called help", async () => {
+    await expect(launch("conan", ["app", "help"])).resolves.toBe(0);
+    expect((await calls())[0]?.args).toEqual(["app", "--help"]);
+  });
+
+  it("rejects unsafe prefixed credential-store overrides before creating auth", async () => {
+    await expect(launch("conan", ["-c", 'cli_auth_credentials_store="keyring"', "login", "--device-auth"])).rejects.toThrow("require cli_auth_credentials_store");
+    await expect(calls()).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(authPath("conan"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it.for([["exec", "hello"], ["login", "--device-auth"], ["login", "status"]])("blocks linked credentials before starting Codex: %j", async (args, context) => {
     await fs.mkdir(join(root, "manager", "profiles", "conan"), { recursive: true });
     try {

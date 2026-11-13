@@ -6,6 +6,8 @@ import { assertDesktopStopped } from "./desktop-runtime.ts";
 import { buildProfileHome } from "./profile-home.ts";
 import { profileHome, profileLifecycleLockPath, resolveCodexBinary } from "./paths.ts";
 import { isSeparated, type Profile } from "./registry.ts";
+import { buildProfileEnv } from "./environment.ts";
+import { assertFileCredentialStore, withFileCredentialStore } from "./config-overrides.ts";
 
 export interface LoginOptions {
   deviceAuth?: boolean | undefined;
@@ -14,9 +16,7 @@ export interface LoginOptions {
 }
 
 export async function login(profile: Profile, options: LoginOptions = {}): Promise<void> {
-  if (options.apiKeyEnv && options.accessTokenEnv) {
-    throw new Error("--api-key-env and --access-token-env cannot be used together");
-  }
+  validateLoginOptions(options);
   const home = profileHome(profile.slug);
   await fs.mkdir(home, { recursive: true, mode: 0o700 });
   await withFileLock(profileLifecycleLockPath(profile.slug), async () => {
@@ -29,7 +29,12 @@ export async function loginLocked(
   profile: Profile,
   options: LoginOptions = {},
   codexArgs: string[] = [],
+  prefixArgs: string[] = [],
 ): Promise<void> {
+  validateLoginOptions(options);
+  assertFileCredentialStore([...prefixArgs, ...codexArgs]);
+  const secretName = options.apiKeyEnv ?? options.accessTokenEnv;
+  const secret = secretName === undefined ? undefined : requiredSecret(secretName);
   await assertDesktopStopped(profile.slug);
   await recoverAuthBackup(profile.slug);
   const home = await buildProfileHome(profile.slug, isSeparated(profile));
@@ -44,18 +49,16 @@ export async function loginLocked(
   }
 
   try {
-    const args = ["login", ...codexArgs];
-    let secret: string | undefined;
+    const args = [...prefixArgs, "login", ...codexArgs];
     if (options.deviceAuth) args.push("--device-auth");
     if (options.apiKeyEnv) {
-      secret = requiredSecret(options.apiKeyEnv);
       args.push("--with-api-key");
     }
     if (options.accessTokenEnv) {
-      secret = requiredSecret(options.accessTokenEnv);
       args.push("--with-access-token");
     }
-    const code = await runLoginProcess(resolveCodexBinary(), args, loginEnv(home), secret);
+    const env = buildProfileEnv(home, secretName === undefined ? [] : [secretName]);
+    const code = await runLoginProcess(resolveCodexBinary(), args, env, secret);
     if (code !== 0) throw new Error(`codex login exited with status ${code}`);
     const status = await inspectAuth(profile.slug);
     if (!status.ok) {
@@ -78,6 +81,12 @@ export async function loginLocked(
   }
 }
 
+function validateLoginOptions(options: LoginOptions): void {
+  if ([options.deviceAuth, options.apiKeyEnv, options.accessTokenEnv].filter(Boolean).length > 1) {
+    throw new Error("--device-auth, --api-key-env and --access-token-env cannot be used together");
+  }
+}
+
 function requiredSecret(name: string): string {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
     throw new Error(`invalid environment variable name: ${name}`);
@@ -87,13 +96,6 @@ function requiredSecret(name: string): string {
   return value;
 }
 
-function loginEnv(home: string): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env, CODEX_HOME: home };
-  delete env.OPENAI_API_KEY;
-  delete env.CODEX_ACCESS_TOKEN;
-  return env;
-}
-
 async function runLoginProcess(
   binary: string,
   args: string[],
@@ -101,7 +103,7 @@ async function runLoginProcess(
   secret?: string,
 ): Promise<number> {
   return await new Promise<number>((resolve, reject) => {
-    const child = spawn(binary, args, {
+    const child = spawn(binary, withFileCredentialStore(args), {
       stdio: secret === undefined ? "inherit" : ["pipe", "inherit", "inherit"],
       env,
       windowsHide: false,

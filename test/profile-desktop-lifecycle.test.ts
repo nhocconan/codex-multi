@@ -81,6 +81,27 @@ function failRegistryCommit(): void {
 }
 
 describe("desktop registry updates", () => {
+  it("changes only the explicit display name without requiring an interactive terminal", async () => {
+    await seedProfile();
+    vi.spyOn(process, "stdin", "get").mockReturnValue({ isTTY: false } as typeof process.stdin);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await edit("work", { name: "Work renamed" });
+    expect(await findRegistered("work")).toMatchObject({ slug: "work", label: "Work renamed" });
+    expect(await fs.readFile(join(profileHome("work"), "auth.json"), "utf8"))
+      .toContain("fake-key");
+  });
+
+  it("changes only the explicit slug without requiring an interactive terminal", async () => {
+    await seedProfile();
+    vi.spyOn(process, "stdin", "get").mockReturnValue({ isTTY: false } as typeof process.stdin);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await edit("work", { slug: "job" });
+    expect(await findRegistered("work")).toBeUndefined();
+    expect(await findRegistered("job")).toMatchObject({ slug: "job", label: "Work" });
+    expect(await fs.readFile(join(profileHome("job"), "auth.json"), "utf8"))
+      .toContain("fake-key");
+  });
+
   it("reports an alias conflict as an edit failure without claiming success", async () => {
     await seedProfile();
     const foreign = desktopAliasPath("Codex Taken");

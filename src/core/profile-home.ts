@@ -1,8 +1,9 @@
 import { promises as fs, type Dirent } from "node:fs";
-import { join } from "node:path";
+import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { parse, stringify, type TomlTable } from "smol-toml";
 import { baseCodexHome, profileHome } from "./paths.ts";
 import { assertProfileAuthIsolation } from "./auth.ts";
-import { atomicWrite } from "./atomic-write.ts";
+import { atomicWriteIfChanged } from "./atomic-write.ts";
 
 const PRIVATE_NAMES = new Set([
   "auth.json",
@@ -17,6 +18,7 @@ const PRIVATE_NAMES = new Set([
 ]);
 
 export function isPrivateName(name: string): boolean {
+  name = name.toLowerCase();
   if (PRIVATE_NAMES.has(name)) return true;
   if (/^auth\.json(?:[.-].+)?$/.test(name)) return true;
   // Desktop app window/UI state; each profile keeps its own copy so
@@ -48,34 +50,81 @@ export async function buildProfileHome(slug: string, separated = false): Promise
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
+  const credentials = await credentialIdentities(base, destination, entries);
+  const protectedHomes = await Promise.all([base, destination].map(async (path) => {
+    try { return await fs.realpath(path); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return path;
+      throw error;
+    }
+  }));
   const desired = new Set<string>();
   for (const entry of entries) {
     if (separated || isPrivateName(entry.name)) continue;
-    desired.add(entry.name);
     const target = join(base, entry.name);
+    if (!entry.isDirectory() && await aliasesCredential(target, credentials, entry.isSymbolicLink(), protectedHomes)) continue;
+    desired.add(entry.name);
     const link = join(destination, entry.name);
     await ensureSharedEntry(link, target, entry.isDirectory());
   }
 
-  let profileEntries: Dirent[] = [];
-  try {
-    profileEntries = await fs.readdir(destination, { withFileTypes: true });
-  } catch {
-    return destination;
-  }
+  const profileEntries = await fs.readdir(destination, { withFileTypes: true });
   for (const entry of profileEntries) {
     if (entry.name === "auth.json" || entry.name === "config.toml" || desired.has(entry.name)) {
       continue;
     }
     const path = join(destination, entry.name);
     try {
-      if ((await fs.lstat(path)).isSymbolicLink()) await fs.unlink(path);
-    } catch {
-      // Best-effort stale-link cleanup.
+      const stat = await fs.lstat(path, { bigint: true });
+      if (stat.isSymbolicLink() ||
+        (stat.isFile() && stat.nlink > 1 && credentials.has(`${stat.dev}:${stat.ino}`))) {
+        await fs.unlink(path);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
   await writeProfileConfig(base, destination);
   return destination;
+}
+
+async function credentialIdentities(base: string, destination: string, entries: Dirent[]): Promise<Set<string>> {
+  const paths = [
+    join(destination, "auth.json"), join(destination, "auth.json.cpm-backup"),
+    ...entries.filter((entry) => /^auth\.json(?:[.-].+)?$/i.test(entry.name))
+      .map((entry) => join(base, entry.name)),
+  ];
+  const identities = new Set<string>();
+  for (const path of paths) {
+    try {
+      const stat = await fs.stat(path, { bigint: true });
+      identities.add(`${stat.dev}:${stat.ino}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return identities;
+}
+
+async function aliasesCredential(path: string, identities: Set<string>, symbolic: boolean, protectedHomes: string[]): Promise<boolean> {
+  try {
+    const stat = await fs.stat(path, { bigint: true });
+    if (identities.has(`${stat.dev}:${stat.ino}`)) return true;
+    if (symbolic) {
+      const target = await fs.realpath(path);
+      if (/^auth\.json(?:[.-].+)?$/i.test(basename(target))) return true;
+      if (stat.isDirectory()) {
+        if ((await fs.readdir(target)).some((name) => /^auth\.json(?:[.-].+)?$/i.test(name))) return true;
+        return protectedHomes.some((home) => {
+          const child = relative(target, home);
+          return child === "" || (!isAbsolute(child) && child !== ".." && !child.startsWith(`..${sep}`));
+        });
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return true;
+  }
+  return false;
 }
 
 async function ensureSharedEntry(link: string, target: string, directory: boolean): Promise<void> {
@@ -87,8 +136,8 @@ async function ensureSharedEntry(link: string, target: string, directory: boolea
       await fs.unlink(link);
     } else {
       const [linkStat, targetStat] = await Promise.all([
-        fs.stat(link).catch(() => null),
-        fs.stat(target).catch(() => null),
+        fs.stat(link, { bigint: true }).catch(() => null),
+        fs.stat(target, { bigint: true }).catch(() => null),
       ]);
       if (
         linkStat &&
@@ -143,16 +192,23 @@ async function writeProfileConfig(base: string, destination: string): Promise<vo
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
-  const lines = source.split(/\r?\n/);
-  let insideTable = false;
-  const kept = lines.filter((line) => {
-    if (/^\s*\[/.test(line)) insideTable = true;
-    return insideTable || !/^\s*cli_auth_credentials_store\s*=/.test(line);
-  });
+  let config: TomlTable;
+  try {
+    config = parse(source, { integersAsBigInt: true });
+    config.cli_auth_credentials_store = "file";
+    if (config.profiles && typeof config.profiles === "object" && !Array.isArray(config.profiles)) {
+      for (const profile of Object.values(config.profiles)) {
+        if (profile && typeof profile === "object" && !Array.isArray(profile)) {
+          (profile as TomlTable).cli_auth_credentials_store = "file";
+        }
+      }
+    }
+  } catch {
+    throw new Error("base config.toml is invalid; fix its TOML syntax before launching a profile");
+  }
   const content = [
     "# Managed by codex-multi; regenerated from the base Codex config.",
-    'cli_auth_credentials_store = "file"',
-    ...kept,
+    stringify(config, { numbersAsFloat: true }),
   ].join("\n");
-  await atomicWrite(join(destination, "config.toml"), content.endsWith("\n") ? content : `${content}\n`);
+  await atomicWriteIfChanged(join(destination, "config.toml"), content.endsWith("\n") ? content : `${content}\n`);
 }
