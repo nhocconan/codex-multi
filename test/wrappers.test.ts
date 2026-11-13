@@ -91,10 +91,10 @@ describe("launcher synchronization", () => {
     expect((await fs.lstat(path)).isDirectory()).toBe(true);
   });
 
-  it("preserves argument boundaries and manager exit status through a generated launcher", async () => {
+  it.for([0, 7])("preserves argument boundaries and manager exit status %i through a generated launcher", async (exitCode) => {
     const manager = join(root, "manager.cjs");
     const observed = join(root, "args.json");
-    await fs.writeFile(manager, `require("node:fs").writeFileSync(${JSON.stringify(observed)}, JSON.stringify(process.argv.slice(2))); process.exit(7);`);
+    await fs.writeFile(manager, `require("node:fs").writeFileSync(${JSON.stringify(observed)}, JSON.stringify(process.argv.slice(2))); process.exit(${exitCode});`);
     process.argv[1] = manager;
     await syncLaunchers([personal]);
     const suffix = process.platform === "win32" ? ".cmd" : "";
@@ -105,7 +105,7 @@ describe("launcher synchronization", () => {
       child.once("error", reject);
       child.once("exit", resolve);
     });
-    expect(code).toBe(7);
+    expect(code).toBe(exitCode);
     expect(JSON.parse(await fs.readFile(observed, "utf8"))).toEqual(["launch", "personal", "--", ...args]);
   });
 

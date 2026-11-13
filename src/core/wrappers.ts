@@ -181,21 +181,26 @@ child.on("exit", (code, signal) => {
 function windowsLauncher(slug: string, self: string, transient: boolean): string {
   const recordedSelf = transient ? "" : self.replace(/"/g, "");
   const execPath = process.execPath.replace(/"/g, "");
+  // Execute outside command blocks so %errorlevel% is expanded after the child exits.
+  // Delayed expansion would corrupt arguments containing exclamation marks.
   return `@echo off\r
 rem ${MARKER}\r
 setlocal\r
 set "RECORDED_SELF=${recordedSelf}"\r
-if defined RECORDED_SELF if exist "%RECORDED_SELF%" (\r
-  "${execPath}" "%RECORDED_SELF%" launch ${slug} -- %*\r
-  exit /b\r
-)\r
+if defined RECORDED_SELF if exist "%RECORDED_SELF%" goto recorded_manager\r
 for %%I in (codex-multi.cmd codex-multi.exe cpm.cmd cpm.exe) do (\r
   if not "%%~$PATH:I"=="" (\r
-    "%%~$PATH:I" launch ${slug} -- %*\r
-    exit /b\r
+    set "PATH_MANAGER=%%~$PATH:I"\r
+    goto path_manager\r
   )\r
 )\r
 npx --prefix "%TEMP%" --yes --package=codex-multi@${VERSION} "codex-multi" launch ${slug} -- %*\r
+exit /b %errorlevel%\r
+:recorded_manager\r
+"${execPath}" "%RECORDED_SELF%" launch ${slug} -- %*\r
+exit /b %errorlevel%\r
+:path_manager\r
+"%PATH_MANAGER%" launch ${slug} -- %*\r
 exit /b %errorlevel%\r
 `;
 }
