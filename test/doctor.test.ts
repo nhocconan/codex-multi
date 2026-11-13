@@ -103,6 +103,26 @@ describe("cpm doctor", () => {
     expect(await fs.readFile(target, "utf8")).toContain("codex-multi launcher");
   });
 
+  it("distinguishes file identifiers beyond JavaScript's exact number range", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const home = await seedProfile();
+    const base = join(root, "base-codex", "queue_1.sqlite");
+    const entry = join(home, "queue_1.sqlite");
+    await fs.writeFile(base, "base database");
+    await fs.writeFile(entry, "foreign database");
+    const stat = fs.stat.bind(fs);
+    vi.spyOn(fs, "stat").mockImplementation((async (...args: Parameters<typeof fs.stat>) => {
+      const result = await stat(...args);
+      if (args[0] === base || args[0] === entry) {
+        const ino = args[0] === base ? 2n ** 60n : 2n ** 60n + 1n;
+        return Object.assign(result, { ino: typeof result.ino === "bigint" ? ino : Number(ino) });
+      }
+      return result;
+    }) as typeof fs.stat);
+    expect(await doctor()).toBe(1);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("queue_1.sqlite is detached"));
+  });
+
   it("rejects an oversized launcher without trusting an embedded ownership marker", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await seedProfile();

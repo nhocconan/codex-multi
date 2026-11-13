@@ -77,7 +77,8 @@ export async function doctor(): Promise<number> {
         const basePath = join(baseCodexHome(), name);
         let baseStat;
         try {
-          baseStat = await fs.stat(basePath);
+          // Windows file identifiers can exceed Number's exact integer range.
+          baseStat = await fs.stat(basePath, { bigint: true });
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
             errors.push(`${profile.label}: could not inspect base ${name}`);
@@ -85,7 +86,7 @@ export async function doctor(): Promise<number> {
           continue;
         }
         try {
-          const entryStat = await fs.stat(entryPath);
+          const entryStat = await fs.stat(entryPath, { bigint: true });
           if (entryStat.dev !== baseStat.dev || entryStat.ino !== baseStat.ino) {
             errors.push(
               `${profile.label}: ${name} is detached from base Codex state; run cpm sync to repair`,
