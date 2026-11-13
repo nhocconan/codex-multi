@@ -53,15 +53,15 @@ export async function atomicWriteIfChanged(
 async function matchesPrivateFile(path: string, content: Uint8Array | string, mode: number): Promise<boolean> {
   try {
     const expected = Buffer.from(content);
-    const before = await fs.lstat(path);
-    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1 || before.size !== expected.length ||
-      (process.platform !== "win32" && (before.mode & 0o7777) !== mode)) return false;
+    const before = await fs.lstat(path, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n || before.size !== BigInt(expected.length) ||
+      (process.platform !== "win32" && (before.mode & 0o7777n) !== BigInt(mode))) return false;
     const handle = await fs.open(path, constants.O_RDONLY | (process.platform === "win32"
       ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK));
     try {
-      const stat = await handle.stat();
-      if (!stat.isFile() || stat.nlink !== 1 || stat.size !== expected.length || stat.dev !== before.dev || stat.ino !== before.ino ||
-        (process.platform !== "win32" && (stat.mode & 0o7777) !== mode)) return false;
+      const stat = await handle.stat({ bigint: true });
+      if (!stat.isFile() || stat.nlink !== 1n || stat.size !== BigInt(expected.length) || stat.dev !== before.dev || stat.ino !== before.ino ||
+        (process.platform !== "win32" && (stat.mode & 0o7777n) !== BigInt(mode))) return false;
       const actual = Buffer.alloc(expected.length + 1);
       let length = 0;
       while (length < actual.length) {
@@ -69,9 +69,9 @@ async function matchesPrivateFile(path: string, content: Uint8Array | string, mo
         if (!bytesRead) break;
         length += bytesRead;
       }
-      const after = await fs.lstat(path);
-      return after.isFile() && after.nlink === 1 && after.dev === stat.dev && after.ino === stat.ino &&
-        (process.platform === "win32" || (after.mode & 0o7777) === mode) &&
+      const after = await fs.lstat(path, { bigint: true });
+      return after.isFile() && after.nlink === 1n && after.dev === stat.dev && after.ino === stat.ino &&
+        (process.platform === "win32" || (after.mode & 0o7777n) === BigInt(mode)) &&
         actual.subarray(0, length).equals(expected);
     } finally {
       await handle.close();

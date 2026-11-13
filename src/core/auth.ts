@@ -185,16 +185,16 @@ export async function authFingerprint(slug: string): Promise<string | undefined>
 }
 
 async function readManagedCredential(path: string): Promise<Buffer> {
-  const before = await fs.lstat(path);
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+  const before = await fs.lstat(path, { bigint: true });
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
     throw new Error("profile credentials must be real, unlinked files");
   }
   const flags = constants.O_RDONLY | (process.platform === "win32"
     ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK);
   const handle = await fs.open(path, flags);
   try {
-    const opened = await handle.stat();
-    if (!opened.isFile() || opened.nlink !== 1 ||
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.nlink !== 1n ||
       opened.dev !== before.dev || opened.ino !== before.ino) {
       throw new Error("profile credentials changed while opening");
     }

@@ -13,12 +13,12 @@ const MARKER = "codex-multi launcher";
 const MAX_LAUNCHER_BYTES = 64 * 1024;
 
 export async function readOwnedLauncher(path: string): Promise<string | undefined> {
-  const before = await fs.lstat(path);
-  if (!before.isFile() || before.nlink !== 1 || before.size > MAX_LAUNCHER_BYTES) return undefined;
+  const before = await fs.lstat(path, { bigint: true });
+  if (!before.isFile() || before.nlink !== 1n || before.size > MAX_LAUNCHER_BYTES) return undefined;
   const handle = await fs.open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
-    const opened = await handle.stat();
-    if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== before.dev || opened.ino !== before.ino) return undefined;
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile() || opened.nlink !== 1n || opened.dev !== before.dev || opened.ino !== before.ino) return undefined;
     const buffer = Buffer.alloc(MAX_LAUNCHER_BYTES + 1);
     let length = 0;
     while (length < buffer.length) {
@@ -27,8 +27,8 @@ export async function readOwnedLauncher(path: string): Promise<string | undefine
       length += bytesRead;
     }
     if (length > MAX_LAUNCHER_BYTES) return undefined;
-    const after = await fs.lstat(path);
-    if (!after.isFile() || after.nlink !== 1 || after.dev !== opened.dev || after.ino !== opened.ino) return undefined;
+    const after = await fs.lstat(path, { bigint: true });
+    if (!after.isFile() || after.nlink !== 1n || after.dev !== opened.dev || after.ino !== opened.ino) return undefined;
     const source = buffer.subarray(0, length).toString("utf8");
     return source.includes(MARKER) ? source : undefined;
   } finally {

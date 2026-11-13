@@ -301,11 +301,23 @@ describe("profile home isolation", () => {
     await expect(fs.lstat(join(home, "queue_1.sqlite-shm"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("replaces detached regular files with shared links", async () => {
+  it.for([false, true])("replaces detached regular files with shared links (large identifiers: %s)", async (largeIdentifiers) => {
     const home = join(manager, "profiles", "personal");
     await fs.mkdir(home, { recursive: true });
     await fs.writeFile(join(base, "queue_1.sqlite"), "canonical db");
     await fs.writeFile(join(home, "queue_1.sqlite"), "detached stale db");
+
+    if (largeIdentifiers) {
+      const stat = fs.stat.bind(fs);
+      vi.spyOn(fs, "stat").mockImplementation((async (...args: Parameters<typeof fs.stat>) => {
+        const result = await stat(...args);
+        if (args[0] === join(base, "queue_1.sqlite") || args[0] === join(home, "queue_1.sqlite")) {
+          const ino = args[0] === join(base, "queue_1.sqlite") ? 2n ** 60n : 2n ** 60n + 1n;
+          return Object.assign(result, { ino: typeof result.ino === "bigint" ? ino : Number(ino) });
+        }
+        return result;
+      }) as typeof fs.stat);
+    }
 
     await buildProfileHome("personal");
 

@@ -74,7 +74,7 @@ export async function buildProfileHome(slug: string, separated = false): Promise
     }
     const path = join(destination, entry.name);
     try {
-      const stat = await fs.lstat(path);
+      const stat = await fs.lstat(path, { bigint: true });
       if (stat.isSymbolicLink() ||
         (stat.isFile() && stat.nlink > 1 && credentials.has(`${stat.dev}:${stat.ino}`))) {
         await fs.unlink(path);
@@ -96,7 +96,7 @@ async function credentialIdentities(base: string, destination: string, entries: 
   const identities = new Set<string>();
   for (const path of paths) {
     try {
-      const stat = await fs.stat(path);
+      const stat = await fs.stat(path, { bigint: true });
       identities.add(`${stat.dev}:${stat.ino}`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -107,7 +107,7 @@ async function credentialIdentities(base: string, destination: string, entries: 
 
 async function aliasesCredential(path: string, identities: Set<string>, symbolic: boolean, protectedHomes: string[]): Promise<boolean> {
   try {
-    const stat = await fs.stat(path);
+    const stat = await fs.stat(path, { bigint: true });
     if (identities.has(`${stat.dev}:${stat.ino}`)) return true;
     if (symbolic) {
       const target = await fs.realpath(path);
@@ -136,8 +136,8 @@ async function ensureSharedEntry(link: string, target: string, directory: boolea
       await fs.unlink(link);
     } else {
       const [linkStat, targetStat] = await Promise.all([
-        fs.stat(link).catch(() => null),
-        fs.stat(target).catch(() => null),
+        fs.stat(link, { bigint: true }).catch(() => null),
+        fs.stat(target, { bigint: true }).catch(() => null),
       ]);
       if (
         linkStat &&
