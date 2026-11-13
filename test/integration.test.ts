@@ -61,7 +61,7 @@ describe("import and launch", () => {
       const observed = JSON.parse(
         await fs.readFile(join(root, "launch.json"), "utf8"),
       ) as { argv: string[]; codexHome: string; hasApiKey: boolean };
-      expect(observed.argv).toEqual(["exec", "hello"]);
+      expect(observed.argv).toEqual(["-c", 'cli_auth_credentials_store="file"', "exec", "hello"]);
       expect(observed.codexHome).toBe(join(root, "manager", "profiles", "personal"));
       expect(observed.hasApiKey).toBe(false);
       expect(

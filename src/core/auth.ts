@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { promises as fs } from "node:fs";
+import { constants, promises as fs } from "node:fs";
 import { join, resolve } from "node:path";
 import { baseCodexHome, profileHome } from "./paths.ts";
 import { atomicWrite } from "./atomic-write.ts";
@@ -63,31 +63,25 @@ export async function assertProfileAuthIsolation(slug: string): Promise<void> {
   }
 }
 
-export async function recoverAuthBackup(slug: string): Promise<void> {
+export async function recoverAuthBackup(slug: string, beforeRestore?: () => Promise<void>): Promise<void> {
   await assertProfileAuthIsolation(slug);
   const auth = authPath(slug);
   const backup = authBackupPath(slug);
+  let bytes: Buffer;
   try {
-    await fs.lstat(backup);
+    bytes = await readManagedCredential(backup);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
   }
-  try {
-    await fs.lstat(auth);
-    const current = await inspectAuth(slug);
-    if (current.ok) {
-      await fs.unlink(backup);
-    } else {
-      await fs.unlink(auth);
-      await fs.rename(backup, auth);
-      if (process.platform !== "win32") await fs.chmod(auth, 0o600);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    await fs.rename(backup, auth);
-    if (process.platform !== "win32") await fs.chmod(auth, 0o600);
+  const current = await inspectAuth(slug);
+  if (!current.ok) {
+    await beforeRestore?.();
+    await assertProfileAuthIsolation(slug);
+    // Keep the backup until the private replacement is completely installed.
+    await atomicWrite(auth, bytes);
   }
+  await fs.unlink(backup);
 }
 
 export async function copyCurrentAuth(slug: string): Promise<void> {
@@ -101,7 +95,12 @@ export async function copyCurrentAuth(slug: string): Promise<void> {
     }
     throw error;
   });
-  JSON.parse(bytes.toString("utf8"));
+  try {
+    const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+  } catch {
+    throw new Error("base auth.json is invalid; expected a JSON object containing file-based credentials");
+  }
   await atomicWrite(authPath(slug), bytes);
 }
 
@@ -109,8 +108,8 @@ export async function inspectAuth(slug: string): Promise<AuthSummary> {
   let parsed: Record<string, unknown>;
   try {
     await assertProfileAuthIsolation(slug);
-    const raw = await fs.readFile(authPath(slug), "utf8");
-    const value: unknown = JSON.parse(raw);
+    const raw = await readManagedCredential(authPath(slug));
+    const value: unknown = JSON.parse(raw.toString("utf8"));
     if (!value || typeof value !== "object" || Array.isArray(value)) {
       return { ok: false, mode: "unknown", problem: "auth.json is not an object" };
     }
@@ -162,7 +161,7 @@ export async function inspectAuth(slug: string): Promise<AuthSummary> {
 export async function authFingerprint(slug: string): Promise<string | undefined> {
   try {
     await assertProfileAuthIsolation(slug);
-    const bytes = await fs.readFile(authPath(slug));
+    const bytes = await readManagedCredential(authPath(slug));
     let stableCredential: string | undefined;
     try {
       const parsed = JSON.parse(bytes.toString("utf8")) as Record<string, unknown>;
@@ -182,6 +181,26 @@ export async function authFingerprint(slug: string): Promise<string | undefined>
     return createHash("sha256").update(stableCredential ?? bytes).digest("hex");
   } catch {
     return undefined;
+  }
+}
+
+async function readManagedCredential(path: string): Promise<Buffer> {
+  const before = await fs.lstat(path);
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+    throw new Error("profile credentials must be real, unlinked files");
+  }
+  const flags = constants.O_RDONLY | (process.platform === "win32"
+    ? 0 : constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  const handle = await fs.open(path, flags);
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.nlink !== 1 ||
+      opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error("profile credentials changed while opening");
+    }
+    return await handle.readFile();
+  } finally {
+    await handle.close();
   }
 }
 

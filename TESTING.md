@@ -22,6 +22,24 @@ The CI security job also runs `npm audit --audit-level=moderate`, including dev
 dependencies. Run `npm audit` locally when checking current advisories.
 Development checks use Node 22; the distributed CLI still targets Node 18+.
 
+With the official CLI installed, run `npm run test:native-cli` after a Codex
+upgrade. It builds the manager and exercises login status, leading global
+options, named config profiles, help, and shell completion against the installed
+binary. All state and credentials are synthetic and live in a temporary home;
+it sends no model requests, performs no login, and opens no desktop app. It also
+asserts repeated launches leave the generated private config unchanged. Set
+`CODEX_MULTI_CODEX_BIN` to choose the exact official CLI binary.
+
+Optional local SAST uses reviewed repository rules without registry downloads:
+
+```bash
+semgrep scan --config scripts/audit/security.semgrep.yml --metrics=off \
+  --disable-version-check --oss-only --no-git-ignore src
+```
+
+These four focused rules supplement manual review and behavior tests. They do
+not replace the credential-isolation or native lifecycle checks.
+
 Run `node scripts/benchmark/icons.mjs <baseline-ref>` to compare the current icon
 pipeline with a Git revision (defaults to `HEAD`). It checks identical output and
 reports alternating before/after medians for a generated 1024px icon; it does not
@@ -62,6 +80,12 @@ before reporting the release as available.
   hard links, path traversal before lock creation, semantic plist ownership,
   delayed desktop startup, explicit pending-launch recovery under both locks,
   and callback-router interruption/rollback failures.
+- Credential/config regressions cover disguised and dangling auth links,
+  file-descriptor swaps, recovery failure preservation, semantic TOML keys,
+  named profile overrides, enforced CLI storage, and no-op private config writes.
+- CLI/UI regressions cover strict manager flag validation, partial scripted edits,
+  leading Codex options before login/logout, literal prompts, terminal EOF,
+  cancellation, I/O failure cleanup, and safe native desktop dispatch.
 - Integration tests import a fake file-based login and launch a fake Codex
   executable through a real profile home.
 - Packaging is checked with `npm pack --dry-run`.

@@ -1,0 +1,34 @@
+rules:
+  - id: shell-enabled-child-process
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: A shell-enabled subprocess needs manual injection review.
+    pattern-either:
+      - pattern: |
+          $SPAWN(..., { ..., shell: true, ... })
+      - pattern: |
+          $SPAWN(..., { ..., shell: "...", ... })
+  - id: eval-or-function-code
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: Runtime string execution bypasses argument isolation.
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+  - id: authentication-object-logging
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: Check that credentials or callback URLs are never logged.
+    pattern-either:
+      - pattern: console.$LOG(..., $OBJ.tokens, ...)
+      - pattern: console.$LOG(..., $OBJ.access_token, ...)
+      - pattern: console.$LOG(..., $OBJ.refresh_token, ...)
+      - pattern: console.$LOG(..., $OBJ.OPENAI_API_KEY, ...)
+  - id: disabled-tls-verification
+    languages: [typescript, javascript]
+    severity: ERROR
+    message: TLS verification must stay enabled.
+    pattern-either:
+      - pattern: process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
+      - pattern: |
+          $CALL(..., { ..., rejectUnauthorized: false, ... })

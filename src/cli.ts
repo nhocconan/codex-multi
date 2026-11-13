@@ -26,15 +26,38 @@ export async function main(argv = process.argv): Promise<number> {
   }
 
   const [subcommand, ...rest] = raw;
-  if (subcommand === undefined) return await runTui();
+  if (subcommand === undefined) {
+    if (process.stdin.isTTY && process.stdout.isTTY) return await runTui();
+    printHelp();
+    return 0;
+  }
   if (subcommand === "--help" || subcommand === "-h" || subcommand === "help") {
     printHelp();
     return 0;
   }
   if (subcommand === "--version" || subcommand === "-V" || subcommand === "version") {
+    if (rest.length) throw new Error("usage: cpm --version");
     console.log(VERSION);
     return 0;
   }
+  if (subcommand === "launch" || subcommand === "run" || subcommand === "use") {
+    if (rest.length === 1 && (rest[0] === "--help" || rest[0] === "-h")) {
+      printHelp();
+      return 0;
+    }
+    const slug = rest[0];
+    if (!slug) throw new Error(`usage: cpm ${subcommand} <slug> [-- codex args...]`);
+    return await launch(slug, rest.slice(1));
+  }
+
+  const schema = Object.hasOwn(COMMAND_FLAGS, subcommand) ? COMMAND_FLAGS[subcommand] : undefined;
+  if (!schema) throw new Error(`unknown command: ${subcommand}\nRun: cpm --help`);
+  const flags = parseFlags(rest);
+  if (hasFlag(flags, "help", "h")) {
+    printHelp();
+    return 0;
+  }
+  validateCommandFlags(subcommand, flags, schema);
   if (subcommand === "list" || subcommand === "ls") {
     await list();
     return 0;
@@ -44,37 +67,34 @@ export async function main(argv = process.argv): Promise<number> {
     await sync();
     return 0;
   }
-  if (subcommand === "launch" || subcommand === "run" || subcommand === "use") {
-    const slug = rest[0];
-    if (!slug) throw new Error(`usage: cpm ${subcommand} <slug> [-- codex args...]`);
-    return await launch(slug, rest.slice(1));
-  }
   if (subcommand === "callback-router") {
-    await callbackRouter(rest[0] || "status");
+    await callbackRouter(flags.positionals[0] || "status");
     return 0;
   }
   if (subcommand === "desktop") {
-    const slug = rest[0];
+    const slug = flags.positionals[0];
     if (!slug) throw new Error(`usage: cpm desktop <slug>`);
     await desktopCommand(slug);
     return 0;
   }
   if (subcommand === "desktop-reset-pending") {
-    const flags = parseFlags(rest);
     const slug = flags.positionals[0];
     if (!slug) throw new Error("usage: cpm desktop-reset-pending <slug> --confirm-quit");
     await resetPendingDesktop(slug, hasFlag(flags, "confirm-quit"));
     return 0;
   }
   if (subcommand === "desktop-on" || subcommand === "desktop-off") {
-    const slug = rest[0];
+    const slug = flags.positionals[0];
     if (!slug) throw new Error(`usage: cpm ${subcommand} <slug>`);
     await setDesktopEnabled(slug, subcommand === "desktop-on");
     return 0;
   }
 
-  const flags = parseFlags(rest);
   if (subcommand === "add" || subcommand === "import") {
+    validateLoginFlags(flags, subcommand === "import" || hasFlag(flags, "import-current"));
+    if ((flags.values.has("desktop-name") || flags.values.has("desktop-color")) && !hasFlag(flags, "desktop")) {
+      throw new Error("--desktop-name/--desktop-color require --desktop when adding a profile");
+    }
     await add({
       ...(flagValue(flags, "name", "n") ? { name: flagValue(flags, "name", "n") } : {}),
       ...(flagValue(flags, "slug", "s") ? { slug: flagValue(flags, "slug", "s") } : {}),
@@ -100,6 +120,7 @@ export async function main(argv = process.argv): Promise<number> {
   if (subcommand === "login" || subcommand === "refresh") {
     const slug = flags.positionals[0];
     if (!slug) throw new Error(`usage: cpm ${subcommand} <slug>`);
+    validateLoginFlags(flags);
     await login(slug, {
       ...(hasFlag(flags, "device-auth") ? { deviceAuth: true } : {}),
       ...(flagValue(flags, "api-key-env") ? { apiKeyEnv: flagValue(flags, "api-key-env") } : {}),
@@ -136,6 +157,8 @@ export async function main(argv = process.argv): Promise<number> {
 }
 
 const BOOLEAN_FLAGS = new Set([
+  "help",
+  "h",
   "device-auth",
   "import-current",
   "yes",
@@ -146,10 +169,54 @@ const BOOLEAN_FLAGS = new Set([
   "confirm-quit",
 ]);
 
+const VALUE_FLAGS = new Set([
+  "name", "n", "slug", "s", "api-key-env", "access-token-env", "desktop-name", "desktop-color",
+]);
+const FLAG_ALIASES: Record<string, string> = { n: "name", s: "slug", y: "yes", h: "help" };
+const LOGIN_FLAGS = ["device-auth", "api-key-env", "access-token-env"];
+const DESKTOP_FLAGS = ["desktop", "desktop-name", "desktop-color"];
+const ADD_FLAGS = ["name", "n", "slug", "s", ...LOGIN_FLAGS, ...DESKTOP_FLAGS, "import-current", "separated"];
+const EDIT_FLAGS = ["name", "n", "slug", "s", ...DESKTOP_FLAGS, "no-desktop"];
+const COMMAND_FLAGS: Record<string, { options: string[]; positionals: number }> = {
+  add: { options: ADD_FLAGS, positionals: 0 },
+  import: { options: ADD_FLAGS, positionals: 0 },
+  login: { options: LOGIN_FLAGS, positionals: 1 },
+  refresh: { options: LOGIN_FLAGS, positionals: 1 },
+  edit: { options: EDIT_FLAGS, positionals: 1 },
+  rename: { options: EDIT_FLAGS, positionals: 1 },
+  remove: { options: ["yes", "y"], positionals: 1 },
+  rm: { options: ["yes", "y"], positionals: 1 },
+  "desktop-reset-pending": { options: ["confirm-quit"], positionals: 1 },
+  desktop: { options: [], positionals: 1 },
+  "desktop-on": { options: [], positionals: 1 },
+  "desktop-off": { options: [], positionals: 1 },
+  "callback-router": { options: [], positionals: 1 },
+  list: { options: [], positionals: 0 },
+  ls: { options: [], positionals: 0 },
+  doctor: { options: [], positionals: 0 },
+  sync: { options: [], positionals: 0 },
+};
+
+function validateCommandFlags(command: string, flags: Flags, schema: { options: string[]; positionals: number }): void {
+  for (const name of [...flags.values.keys(), ...flags.booleans]) {
+    if (!schema.options.includes(name)) throw new Error(`--${name} is not supported by cpm ${command}`);
+  }
+  if (flags.positionals.length > schema.positionals) {
+    throw new Error(`too many arguments for cpm ${command}; run cpm ${command} --help`);
+  }
+}
+
+function validateLoginFlags(flags: Flags, importing = false): void {
+  const modes = LOGIN_FLAGS.filter((name) => flags.values.has(name) || flags.booleans.has(name));
+  if (importing && modes.length) throw new Error("login options cannot be combined with importing the current login");
+  if (modes.length > 1) throw new Error("choose only one login method: --device-auth, --api-key-env, or --access-token-env");
+}
+
 export function parseFlags(args: string[]): Flags {
   const positionals: string[] = [];
   const values = new Map<string, string>();
   const booleans = new Set<string>();
+  const seen = new Set<string>();
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!;
     if (arg === "--") {
@@ -162,8 +229,18 @@ export function parseFlags(args: string[]): Flags {
     }
     const normalized = arg.replace(/^-{1,2}/, "");
     const equals = normalized.indexOf("=");
+    const name = equals >= 0 ? normalized.slice(0, equals) : normalized;
+    if (!BOOLEAN_FLAGS.has(name) && !VALUE_FLAGS.has(name)) {
+      throw new Error(`unknown option: ${arg.split("=", 1)[0]}`);
+    }
+    const canonical = FLAG_ALIASES[name] ?? name;
+    if (seen.has(canonical)) throw new Error(`duplicate option: --${canonical}`);
+    seen.add(canonical);
     if (equals >= 0) {
-      values.set(normalized.slice(0, equals), normalized.slice(equals + 1));
+      if (BOOLEAN_FLAGS.has(name)) throw new Error(`--${name} does not take a value`);
+      const value = normalized.slice(equals + 1);
+      if (!value && name !== "desktop-name") throw new Error(`missing value for --${name}`);
+      values.set(name, value);
       continue;
     }
     if (BOOLEAN_FLAGS.has(normalized)) {
@@ -174,6 +251,7 @@ export function parseFlags(args: string[]): Flags {
     if (value === undefined || value.startsWith("-")) {
       throw new Error(`missing value for ${arg}`);
     }
+    if (!value && name !== "desktop-name") throw new Error(`missing value for ${arg}`);
     values.set(normalized, value);
     index++;
   }

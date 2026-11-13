@@ -1,4 +1,4 @@
-import { existsSync, promises as fs } from "node:fs";
+import { constants, existsSync, promises as fs } from "node:fs";
 import { basename, join } from "node:path";
 import type { Profile } from "./registry.ts";
 import {
@@ -10,6 +10,31 @@ import { VERSION } from "../version.ts";
 import { atomicWrite } from "./atomic-write.ts";
 
 const MARKER = "codex-multi launcher";
+const MAX_LAUNCHER_BYTES = 64 * 1024;
+
+export async function readOwnedLauncher(path: string): Promise<string | undefined> {
+  const before = await fs.lstat(path);
+  if (!before.isFile() || before.nlink !== 1 || before.size > MAX_LAUNCHER_BYTES) return undefined;
+  const handle = await fs.open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.nlink !== 1 || opened.dev !== before.dev || opened.ino !== before.ino) return undefined;
+    const buffer = Buffer.alloc(MAX_LAUNCHER_BYTES + 1);
+    let length = 0;
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, length, buffer.length - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    if (length > MAX_LAUNCHER_BYTES) return undefined;
+    const after = await fs.lstat(path);
+    if (!after.isFile() || after.nlink !== 1 || after.dev !== opened.dev || after.ino !== opened.ino) return undefined;
+    const source = buffer.subarray(0, length).toString("utf8");
+    return source.includes(MARKER) ? source : undefined;
+  } finally {
+    await handle.close();
+  }
+}
 
 export interface SyncResult {
   created: number;
@@ -46,8 +71,8 @@ export async function syncLaunchers(profiles: Profile[]): Promise<SyncResult> {
         : unixLauncher(profile.slug, self, transient);
 
     try {
-      const existing = await fs.readFile(path, "utf8");
-      if (!existing.includes(MARKER)) {
+      const existing = await readOwnedLauncher(path);
+      if (existing === undefined) {
         result.conflicts.push(path);
         continue;
       }
@@ -76,8 +101,7 @@ export async function syncLaunchers(profiles: Profile[]): Promise<SyncResult> {
     if (!normalized.startsWith("codex-") || wanted.has(entry.name)) continue;
     const path = join(dir, entry.name);
     try {
-      const content = await fs.readFile(path, "utf8");
-      if (!content.includes(MARKER)) continue;
+      if (await readOwnedLauncher(path) === undefined) continue;
       await fs.unlink(path);
       result.removed++;
     } catch {
@@ -91,8 +115,7 @@ export async function removeLauncher(slug: string): Promise<void> {
   const filename = launcherName(slug) + (process.platform === "win32" ? ".cmd" : "");
   const path = join(launchersDir(), filename);
   try {
-    const content = await fs.readFile(path, "utf8");
-    if (content.includes(MARKER)) await fs.unlink(path);
+    if (await readOwnedLauncher(path) !== undefined) await fs.unlink(path);
   } catch {
     // Missing or foreign launchers are intentionally untouched.
   }
@@ -164,12 +187,12 @@ setlocal\r
 set "RECORDED_SELF=${recordedSelf}"\r
 if defined RECORDED_SELF if exist "%RECORDED_SELF%" (\r
   "${execPath}" "%RECORDED_SELF%" launch ${slug} -- %*\r
-  exit /b %errorlevel%\r
+  exit /b\r
 )\r
 for %%I in (codex-multi.cmd codex-multi.exe cpm.cmd cpm.exe) do (\r
   if not "%%~$PATH:I"=="" (\r
     "%%~$PATH:I" launch ${slug} -- %*\r
-    exit /b %errorlevel%\r
+    exit /b\r
   )\r
 )\r
 npx --prefix "%TEMP%" --yes --package=codex-multi@${VERSION} "codex-multi" launch ${slug} -- %*\r

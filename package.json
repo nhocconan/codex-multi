@@ -1,6 +1,6 @@
 {
   "name": "codex-multi",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Run multiple Codex accounts with isolated logins, memorable aliases, and one shared skills setup.",
   "license": "MIT",
   "author": "Tien Le",
@@ -13,6 +13,7 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],
   "keywords": [
@@ -46,6 +47,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:native-cli": "npm run build && node scripts/smoke/codex-cli.mjs",
     "audit:security": "node scripts/audit/atomic-writes.mjs",
     "prepare": "tsup",
     "version": "npm run verify && npm pack --dry-run",
@@ -69,6 +71,7 @@
   "dependencies": {
     "cross-spawn": "7.0.6",
     "pngjs": "^7.0.0",
-    "proper-lockfile": "4.1.2"
+    "proper-lockfile": "4.1.2",
+    "smol-toml": "1.9.1"
   }
 }

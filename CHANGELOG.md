@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-11-13
+
+### Fixed
+
+- Keep credential storage file-based across named profiles, project config, and
+  CLI overrides; scrub ambient Codex API keys and workload identity selectors.
+- Preserve previous credentials when backup recovery cannot replace the current
+  file; validate opened credential files and exclude disguised auth links from
+  shared state.
+- Protect login with leading Codex options and logout while a desktop profile
+  is active. Direct native app launches point to the isolated desktop command.
+- Reject linked desktop data directories, unsafe router recovery records, and
+  linked or oversized launcher/plist files; bound desktop process scans.
+- Reject invalid manager flags and contradictory login methods before mutation;
+  handle terminal cancellation, EOF, and I/O failures without hanging.
+- Preserve unspecified fields during scripted profile edits and report config,
+  launcher, and shared database isolation problems accurately in doctor.
+- Preserve the Codex exit status through Windows launchers.
+
+### Changed
+
+- Parse and regenerate managed TOML semantically, preserving config values and
+  forcing file-based credentials. Managed formatting/comments normalize; the
+  base configuration stays untouched.
+- Avoid replacing unchanged private configuration files on repeated launches.
+- Add an optional native CLI smoke check with synthetic credentials and local
+  Semgrep rules for repeatable security reviews.
+
 ## [0.3.2] - 2026-10-31
 
 ### Fixed

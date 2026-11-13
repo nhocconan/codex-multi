@@ -54,11 +54,15 @@ async function exists(path: string): Promise<boolean> {
 }
 async function state(): Promise<RouterState | undefined> {
   try {
-    const value = JSON.parse(await fs.readFile(routerPaths().state, "utf8")) as RouterState;
     const paths = routerPaths();
+    const stat = await fs.lstat(paths.state);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 16 * 1024) {
+      throw new Error("invalid callback router state; expected a private regular file");
+    }
+    const value = JSON.parse(await fs.readFile(paths.state, "utf8")) as RouterState;
     if (!value || typeof value !== "object" || Array.isArray(value) ||
       value.enabled !== true || value.id !== paths.id || value.bundle !== paths.bundle ||
-      !validHandler(value.previousHandler)) throw new Error("invalid callback router state; repair it before changing the URL handler");
+      !validHandler(value.previousHandler) || value.previousHandler === paths.id) throw new Error("invalid callback router state; repair it before changing the URL handler");
     return value;
   } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw e; }
 }
@@ -74,7 +78,8 @@ async function ownedBundle(): Promise<boolean> {
 async function ownedAgent(): Promise<boolean> {
   const paths = routerPaths();
   try {
-    if (!(await fs.lstat(paths.agent)).isFile()) return false;
+    const stat = await fs.lstat(paths.agent);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 16 * 1024) return false;
     const plist = await fs.readFile(paths.agent, "utf8");
     return plist === routerAgentPlist(join(paths.bundle, "Contents", "MacOS", "callback-router"), paths.id);
   } catch { return false; }

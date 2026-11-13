@@ -22,6 +22,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await fs.rm(root, { recursive: true, force: true });
 });
@@ -122,6 +123,81 @@ describe("credential link rejection", () => {
     await recoverAuthBackup("work");
     expect(await fs.readFile(join(home, "auth.json"), "utf8")).toBe(previous);
     expect((await inspectAuth("work")).ok).toBe(true);
+    expect(await fs.readFile(join(base, "auth.json"), "utf8")).toBe(fakeBaseAuth);
+  });
+
+  it("preserves both credential files when backup replacement fails", async () => {
+    const auth = join(home, "auth.json");
+    const backup = join(home, "auth.json.cpm-backup");
+    const previous = '{"OPENAI_API_KEY":"fake-previous-key"}';
+    await fs.writeFile(auth, "invalid current login");
+    await fs.writeFile(backup, previous);
+    const rename = fs.rename.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (to === auth) throw Object.assign(new Error("replacement denied"), { code: "EACCES" });
+      await rename(from, to);
+    });
+
+    await expect(recoverAuthBackup("work")).rejects.toThrow("replacement denied");
+    expect(await fs.readFile(auth, "utf8")).toBe("invalid current login");
+    expect(await fs.readFile(backup, "utf8")).toBe(previous);
+    expect((await fs.readdir(home)).sort()).toEqual(["auth.json", "auth.json.cpm-backup"]);
+  });
+
+  it("makes recovered credentials private before exposing them as auth.json", async () => {
+    const auth = join(home, "auth.json");
+    const backup = join(home, "auth.json.cpm-backup");
+    await fs.writeFile(backup, '{"OPENAI_API_KEY":"fake-previous-key"}', { mode: 0o644 });
+    const rename = fs.rename.bind(fs);
+    vi.spyOn(fs, "rename").mockImplementation(async (from, to) => {
+      if (to === auth && process.platform !== "win32") {
+        expect((await fs.stat(from)).mode & 0o777).toBe(0o600);
+      }
+      await rename(from, to);
+    });
+
+    await recoverAuthBackup("work");
+    expect((await inspectAuth("work")).ok).toBe(true);
+    await expect(fs.lstat(backup)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.for([
+    { operation: "inspect", kind: "symbolic", check: 1 },
+    { operation: "fingerprint", kind: "symbolic", check: 1 },
+    { operation: "inspect", kind: "symbolic", check: 2 },
+    { operation: "fingerprint", kind: "symbolic", check: 2 },
+    { operation: "inspect", kind: "hard", check: 2 },
+    { operation: "fingerprint", kind: "hard", check: 2 },
+  ])("rejects credentials swapped during $operation ($kind link, check $check)", async ({ operation, kind, check }, context) => {
+    const auth = join(home, "auth.json");
+    await fs.writeFile(auth, '{"OPENAI_API_KEY":"fake-profile-key"}');
+    const replacement = join(home, "replacement");
+    try {
+      if (kind === "symbolic") await fs.symlink(join(base, "auth.json"), replacement);
+      else await fs.link(join(base, "auth.json"), replacement);
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+    const lstat = fs.lstat.bind(fs);
+    let replaced = false;
+    let checks = 0;
+    vi.spyOn(fs, "lstat").mockImplementation(async (...args: Parameters<typeof fs.lstat>) => {
+      const stat = await lstat(...args);
+      if (args[0] === auth && ++checks === check) {
+        replaced = true;
+        await fs.unlink(auth);
+        await fs.rename(replacement, auth);
+      }
+      return stat;
+    });
+
+    if (operation === "inspect") expect((await inspectAuth("work")).ok).toBe(false);
+    else expect(await authFingerprint("work")).toBeUndefined();
+    expect(replaced).toBe(true);
     expect(await fs.readFile(join(base, "auth.json"), "utf8")).toBe(fakeBaseAuth);
   });
 });

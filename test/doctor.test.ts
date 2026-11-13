@@ -7,6 +7,7 @@ import { desktopInfoPlist } from "../src/core/desktop.ts";
 import { append } from "../src/core/registry.ts";
 import { atomicWrite } from "../src/core/auth.ts";
 import { syncLaunchers } from "../src/core/wrappers.ts";
+import { launcherPath } from "../src/core/paths.ts";
 
 let root = "";
 
@@ -35,6 +36,81 @@ afterEach(async () => {
 });
 
 describe("cpm doctor", () => {
+  async function seedProfile(config = 'cli_auth_credentials_store = "file"\n'): Promise<string> {
+    const profile = { slug: "work", label: "Work", createdAt: "2026-01-01T00:00:00.000Z" };
+    await append(profile);
+    const home = join(root, "profiles", "work");
+    await fs.mkdir(home, { recursive: true });
+    await fs.writeFile(join(home, "config.toml"), config);
+    await atomicWrite(join(home, "auth.json"), JSON.stringify({ OPENAI_API_KEY: "fake-doctor-key" }));
+    await syncLaunchers([profile]);
+    return home;
+  }
+
+  it.each([
+    ['[nested]\ncli_auth_credentials_store = "file"\n', "does not force file credential storage"],
+    ['cli_auth_credentials_store = "keyring"\n[nested]\ncli_auth_credentials_store = "file"\n', "does not force file credential storage"],
+    ['cli_auth_credentials_store = "file"\n[profiles.work]\ncli_auth_credentials_store = "keyring"\n', "named config profile overrides"],
+    ['cli_auth_credentials_store = "file"\nnot valid TOML', "invalid TOML"],
+  ])("audits credential isolation using TOML semantics: %j", async (config, problem) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await seedProfile(config);
+    expect(await doctor()).toBe(1);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(problem));
+  });
+
+  it("accepts quoted TOML keys and named profiles that inherit file credential storage", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await seedProfile('"cli_auth_credentials_store" = \'file\'\n[profiles.work]\nmodel = "test-model"\n');
+    expect(await doctor()).toBe(0);
+  });
+
+  it.each(["base", "foreign", "missing"])("checks shared sqlite symlink identity for a %s target", async (targetKind) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const home = await seedProfile();
+    const name = "queue_1.sqlite";
+    const base = join(root, "base-codex", name);
+    const foreign = join(root, "foreign.sqlite");
+    await fs.writeFile(base, "base database");
+    await fs.writeFile(foreign, "different database");
+    const target = targetKind === "base" ? base : targetKind === "foreign" ? foreign : join(root, "missing.sqlite");
+    try {
+      await fs.symlink(target, join(home, name));
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOSYS"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+      throw error;
+    }
+    expect(await doctor()).toBe(targetKind === "base" ? 0 : 1);
+    if (targetKind === "foreign") expect(log).toHaveBeenCalledWith(expect.stringContaining("queue_1.sqlite is detached"));
+    if (targetKind === "missing") expect(log).toHaveBeenCalledWith(expect.stringContaining("queue_1.sqlite is missing or unreadable"));
+  });
+
+  it.each(["symbolic", "hard"])("rejects a %s linked launcher even when its target carries the ownership marker", async (kind) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await seedProfile();
+    const launcher = launcherPath("work");
+    const target = join(root, "linked-launcher");
+    await fs.rename(launcher, target);
+    try {
+      if (kind === "hard") await fs.link(target, launcher);
+      else await fs.symlink(target, launcher);
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOSYS"].includes((error as NodeJS.ErrnoException).code ?? "")) return;
+      throw error;
+    }
+    expect(await doctor()).toBe(1);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("launcher path is unsafe or owned by another file"));
+    expect(await fs.readFile(target, "utf8")).toContain("codex-multi launcher");
+  });
+
+  it("rejects an oversized launcher without trusting an embedded ownership marker", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    await seedProfile();
+    await fs.writeFile(launcherPath("work"), "codex-multi launcher\n" + "x".repeat(64 * 1024));
+    expect(await doctor()).toBe(1);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("launcher path is unsafe or owned by another file"));
+  });
+
   it("returns 0 when no profiles are registered", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const code = await doctor();

@@ -79,6 +79,8 @@ describe("desktopPidsFromPs", () => {
     const output = [
       processLine(123, dataDir, " --type=renderer"),
       `456 ${appExecutable} --type=gpu-process --user-data-dir=${dataDir}`,
+      processLine(124, dataDir, " --type renderer"),
+      `457 ${appExecutable} --type gpu-process --user-data-dir=${dataDir}`,
       processLine(789),
     ].join("\n");
     expect(desktopPidsFromPs(output, dataDir)).toEqual([789]);
@@ -111,7 +113,7 @@ describe("runningDesktopPids", () => {
     replyWith([processLine(123), processLine(456, join(root, "desktop", "personal"))].join("\n"));
     await expect(runningDesktopPids("work")).resolves.toEqual([123]);
     expect(execFileMock).toHaveBeenCalledWith(
-      "/bin/ps", ["-axo", "pid=,args="], { maxBuffer: 8 * 1024 * 1024 }, expect.any(Function),
+      "/bin/ps", ["-ww", "-axo", "pid=,args="], { maxBuffer: 8 * 1024 * 1024, timeout: 5000 }, expect.any(Function),
     );
   });
 
@@ -135,6 +137,14 @@ describe("runningDesktopPids", () => {
     await expect(runningDesktopPids("work")).rejects.toMatchObject({
       message: "could not check running desktop profiles: process listing unavailable", cause,
     });
+  });
+
+  it("fails closed when a process scan times out", async () => {
+    const cause = Object.assign(new Error("process scan timed out"), { killed: true, signal: "SIGTERM" });
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback: ExecCallback) => {
+      callback(cause, "", "");
+    });
+    await expect(assertDesktopStopped("work")).rejects.toMatchObject({ cause });
   });
 });
 

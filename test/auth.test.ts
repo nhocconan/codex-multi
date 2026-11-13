@@ -94,4 +94,15 @@ describe("auth isolation", () => {
       problem: "auth.json contains no usable credential",
     });
   });
+
+  it.each(['{"secret":"fake-private-value", broken}', '"fake-private-value"', "null", "[]"])("rejects invalid imports without exposing auth contents: %s", async (source) => {
+    const path = authPath("personal");
+    await fs.mkdir(join(root, "manager", "profiles", "personal"), { recursive: true });
+    await fs.writeFile(path, '{"OPENAI_API_KEY":"fake-existing-key"}');
+    await fs.writeFile(join(root, "base", "auth.json"), source);
+
+    await expect(copyCurrentAuth("personal")).rejects.toThrow("base auth.json is invalid");
+    await expect(copyCurrentAuth("personal")).rejects.not.toThrow("fake-private-value");
+    expect(await fs.readFile(path, "utf8")).toBe('{"OPENAI_API_KEY":"fake-existing-key"}');
+  });
 });

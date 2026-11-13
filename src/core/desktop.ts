@@ -13,6 +13,7 @@ import { ensureCallbackRouterHandler } from "./callback-router.ts";
 import { prepareDesktopLaunch, waitForDesktopStartup } from "./desktop-runtime.ts";
 import { atomicWrite } from "./atomic-write.ts";
 import { readPlistValues } from "./plist.ts";
+import { buildProfileEnv } from "./environment.ts";
 export { readPlistValues } from "./plist.ts";
 
 const execFileAsync = promisify(execFile);
@@ -316,7 +317,7 @@ export function desktopScript(
   return [
     "#!/bin/sh",
     `# codex-multi desktop launcher: ${slug}`,
-    "unset CODEX_HOME CODEX_ELECTRON_USER_DATA_PATH CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS OPENAI_API_KEY CODEX_ACCESS_TOKEN OPENAI_ORG_ID OPENAI_PROJECT_ID CODEX_MULTI_NO_AUTO_RUN CODEX_MULTI_NO_NATIVE_TOOLS CODEX_MULTI_DESKTOP_APP",
+    "unset CODEX_HOME CODEX_ELECTRON_USER_DATA_PATH CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS OPENAI_API_KEY CODEX_API_KEY CODEX_ACCESS_TOKEN OPENAI_ORG_ID OPENAI_PROJECT_ID OPENAI_FEDERATION_RULE_ID OPENAI_IDENTITY_TOKEN_FILE CODEX_MULTI_NO_AUTO_RUN CODEX_MULTI_NO_NATIVE_TOOLS CODEX_MULTI_DESKTOP_APP",
     `CODEX_HOME='${escapeSingleQuoted(home)}'`,
     `DATA_DIR='${escapeSingleQuoted(dataDir)}'`,
     `APP_PATH='${escapeSingleQuoted(app.path)}'`,
@@ -646,6 +647,18 @@ async function filesEqual(path: string, expected: string): Promise<boolean> {
   }
 }
 
+async function ensureDesktopUserDataDir(slug: string): Promise<void> {
+  const parent = join(dataRoot(), "desktop");
+  for (const path of [parent, desktopUserDataDir(slug)]) {
+    try { await fs.mkdir(path, { recursive: path === parent, mode: 0o700 }); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    if (!(await fs.lstat(path)).isDirectory()) {
+      throw new Error(`desktop user data must use real directories; refusing linked or non-directory path: ${path}`);
+    }
+    await fs.chmod(path, 0o700);
+  }
+}
+
 /** Launch one profile's desktop instance directly (same command the alias runs). */
 export async function launchDesktop(profile: Profile): Promise<void> {
   if (!desktopSupported()) {
@@ -657,26 +670,10 @@ export async function launchDesktop(profile: Profile): Promise<void> {
     : await detectDesktopApp();
   const home = profileHome(profile.slug);
   const dataDir = desktopUserDataDir(profile.slug);
-  await fs.mkdir(dataDir, { recursive: true });
-
-  const env: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (
-      key === "CODEX_HOME" ||
-      key === "CODEX_ELECTRON_USER_DATA_PATH" ||
-      key === "CODEX_DESKTOP_RELAUNCH_OPEN_EVENTS" ||
-      key === "CODEX_ACCESS_TOKEN" ||
-      key === "OPENAI_API_KEY" ||
-      key === "OPENAI_ORG_ID" ||
-      key === "OPENAI_PROJECT_ID"
-    ) {
-      continue;
-    }
-    env[key] = value;
-  }
-  env.CODEX_HOME = home;
+  const env = buildProfileEnv(home);
 
   await withFileLock(profileLifecycleLockPath(profile.slug), async () => {
+    await ensureDesktopUserDataDir(profile.slug);
     if (!(await prepareDesktopLaunch(profile.slug))) {
       await ensureCallbackRouterHandler();
       return;

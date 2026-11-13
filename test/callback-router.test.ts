@@ -257,6 +257,58 @@ describe("callback router ownership checks", () => {
     await expect(fs.access(routerPaths().bundle)).rejects.toThrow();
   });
 
+  it("rejects recovery state that would restore the router to itself", async () => {
+    await callbackRouter("enable");
+    const { id, state, bundle, agent } = routerPaths();
+    const malformed = JSON.stringify({ enabled: true, previousHandler: id, id, bundle });
+    await fs.writeFile(state, malformed);
+    for (const command of ["enable", "disable", "status"]) {
+      await expect(callbackRouter(command)).rejects.toThrow("invalid callback router state");
+    }
+    await expect(ensureCallbackRouterHandler()).rejects.toThrow("invalid callback router state");
+    expect(await fs.readFile(state, "utf8")).toBe(malformed);
+    expect((await fs.lstat(bundle)).isDirectory()).toBe(true);
+    expect((await fs.lstat(agent)).isFile()).toBe(true);
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it.for(["symbolic", "hard"])("rejects %s-linked router recovery state before changing the handler", async (kind, context) => {
+    await callbackRouter("enable");
+    const { state, bundle } = routerPaths();
+    const foreign = join(root, "foreign-state.json");
+    const contents = await fs.readFile(state, "utf8");
+    await fs.writeFile(foreign, contents);
+    await fs.unlink(state);
+    try {
+      if (kind === "symbolic") await fs.symlink(foreign, state);
+      else await fs.link(foreign, state);
+    } catch (error) {
+      if (originalPlatform.value === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+    await expect(callbackRouter("disable")).rejects.toThrow("invalid callback router state");
+    await expect(ensureCallbackRouterHandler()).rejects.toThrow("invalid callback router state");
+    expect(await fs.readFile(foreign, "utf8")).toBe(contents);
+    expect((await fs.lstat(bundle)).isDirectory()).toBe(true);
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a hard-linked LaunchAgent without removing either link", async () => {
+    await callbackRouter("enable");
+    const { agent, state, bundle } = routerPaths();
+    const other = join(root, "other-agent.plist");
+    const contents = await fs.readFile(agent, "utf8");
+    await fs.link(agent, other);
+    await expect(callbackRouter("disable")).rejects.toThrow("belongs to another launch agent");
+    expect(await fs.readFile(agent, "utf8")).toBe(contents);
+    expect(await fs.readFile(other, "utf8")).toBe(contents);
+    expect((await fs.lstat(bundle)).isDirectory()).toBe(true);
+    expect((await fs.lstat(state)).isFile()).toBe(true);
+  });
+
   it.each([undefined, null, 123, true, "", "invalid handler"])(
     "rejects a saved state with invalid previous handler %s",
     async (previousHandler) => {

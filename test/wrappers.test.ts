@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { promises as fs } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { isTransientSelf, syncLaunchers } from "../src/core/wrappers.ts";
+import { isTransientSelf, removeLauncher, syncLaunchers } from "../src/core/wrappers.ts";
+import spawn from "cross-spawn";
 import type { Profile } from "../src/core/registry.ts";
 import { VERSION } from "../src/version.ts";
 
@@ -48,6 +49,64 @@ describe("launcher synchronization", () => {
     const result = await syncLaunchers([personal]);
     expect(result.conflicts).toEqual([path]);
     expect(await fs.readFile(path, "utf8")).toBe("user-owned");
+  });
+
+  it.for(["symbolic", "hard"])("preserves %s links even when their targets contain the ownership marker", async (kind, context) => {
+    const suffix = process.platform === "win32" ? ".cmd" : "";
+    const target = join(root, "user-target");
+    const path = join(root, "bin", `codex-personal${suffix}`);
+    await fs.mkdir(join(root, "bin"), { recursive: true });
+    await fs.writeFile(target, "// codex-multi launcher\nuser file");
+    try {
+      if (kind === "symbolic") await fs.symlink(target, path);
+      else await fs.link(target, path);
+    } catch (error) {
+      if (process.platform === "win32" && ["EPERM", "EACCES", "ENOTSUP"].includes((error as NodeJS.ErrnoException).code ?? "")) {
+        context.skip();
+        return;
+      }
+      throw error;
+    }
+    expect((await syncLaunchers([personal])).conflicts).toEqual([path]);
+    expect((await syncLaunchers([])).removed).toBe(0);
+    await removeLauncher("personal");
+    expect(await fs.readFile(target, "utf8")).toBe("// codex-multi launcher\nuser file");
+    expect((await fs.lstat(path)).isSymbolicLink()).toBe(kind === "symbolic");
+    if (kind === "hard") expect((await fs.lstat(path)).nlink).toBe(2);
+  });
+
+  it("leaves oversized and directory collisions untouched", async () => {
+    const suffix = process.platform === "win32" ? ".cmd" : "";
+    const path = join(root, "bin", `codex-personal${suffix}`);
+    await fs.mkdir(join(root, "bin"), { recursive: true });
+    const source = "// codex-multi launcher\n" + "x".repeat(65_536);
+    await fs.writeFile(path, source);
+    expect((await syncLaunchers([personal])).conflicts).toEqual([path]);
+    await removeLauncher("personal");
+    expect(await fs.readFile(path, "utf8")).toBe(source);
+    await fs.unlink(path);
+    await fs.mkdir(path);
+    expect((await syncLaunchers([personal])).conflicts).toEqual([path]);
+    await removeLauncher("personal");
+    expect((await fs.lstat(path)).isDirectory()).toBe(true);
+  });
+
+  it("preserves argument boundaries and manager exit status through a generated launcher", async () => {
+    const manager = join(root, "manager.cjs");
+    const observed = join(root, "args.json");
+    await fs.writeFile(manager, `require("node:fs").writeFileSync(${JSON.stringify(observed)}, JSON.stringify(process.argv.slice(2))); process.exit(7);`);
+    process.argv[1] = manager;
+    await syncLaunchers([personal]);
+    const suffix = process.platform === "win32" ? ".cmd" : "";
+    const launcher = join(root, "bin", `codex-personal${suffix}`);
+    const args = ["exec", "two words", "--model", "test-model"];
+    const code = await new Promise<number | null>((resolve, reject) => {
+      const child = spawn(launcher, args, { stdio: "pipe" });
+      child.once("error", reject);
+      child.once("exit", resolve);
+    });
+    expect(code).toBe(7);
+    expect(JSON.parse(await fs.readFile(observed, "utf8"))).toEqual(["launch", "personal", "--", ...args]);
   });
 
   it("removes only stale manager-owned launchers", async () => {

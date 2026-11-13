@@ -47,10 +47,11 @@ export async function edit(slug: string, options: EditOptions): Promise<void> {
     options.noDesktop !== undefined ||
     options.desktopName !== undefined ||
     options.desktopColor !== undefined;
+  const explicitEdit = hasDesktopFlags || options.name !== undefined || options.slug !== undefined;
   const label = options.name
-    ?? (hasDesktopFlags ? current.label : await promptLine("Display name", current.label));
+    ?? (explicitEdit ? current.label : await promptLine("Display name", current.label));
   let nextSlug = options.slug
-    ?? (hasDesktopFlags ? current.slug : await promptLine("Command suffix (without codex-)", current.slug));
+    ?? (explicitEdit ? current.slug : await promptLine("Command suffix (without codex-)", current.slug));
   nextSlug = nextSlug.replace(/^codex-/, "");
   if (!validLabel(label)) {
     throw new Error("display name must be non-empty and contain no control characters");
