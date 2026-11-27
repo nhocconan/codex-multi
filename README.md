@@ -502,9 +502,11 @@ npm run build
 npm pack --dry-run
 ```
 
-With the official Codex CLI installed, `npm run test:native-cli` checks real
-argument parsing and file-based credential selection using a temporary home and
-synthetic credentials. It sends no model requests and never opens the app.
+With the official Codex CLI installed, `npm run test:native-cli` checks argument
+parsing, credential selection, cross-profile resumes and forks using temporary
+homes and synthetic credentials. Model requests go to a local test server.
+The test also resumes a chat through the desktop app-server protocol and
+verifies that the CLI can continue the resulting turn.
 
 The published CLI keeps its runtime surface small: `cross-spawn` safely runs
 Codex’s Windows `.cmd` shim, `proper-lockfile` protects profile lifecycle
