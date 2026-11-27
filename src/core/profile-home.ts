@@ -1,9 +1,11 @@
 import { promises as fs, type Dirent } from "node:fs";
-import { basename, isAbsolute, join, relative, sep } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { parse, stringify, type TomlTable } from "smol-toml";
 import { baseCodexHome, profileHome } from "./paths.ts";
 import { assertProfileAuthIsolation } from "./auth.ts";
 import { atomicWriteIfChanged } from "./atomic-write.ts";
+
+export const HISTORY_DATABASE = /^(?:state|thread_history)_\d+\.sqlite$/;
 
 const PRIVATE_NAMES = new Set([
   "auth.json",
@@ -50,6 +52,16 @@ export async function buildProfileHome(slug: string, separated = false): Promise
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
 
+  if (!separated) {
+    const names = new Set(entries.map(entry => entry.name));
+    const missing = ["sessions", "archived_sessions", "thread-writer-locks"].filter(name => !names.has(name));
+    if (missing.length) {
+      // Establish one namespace before Codex lazily creates its first rollout or writer lock.
+      await Promise.all(missing.map(name => fs.mkdir(join(base, name), { recursive: true, mode: 0o700 })));
+      entries = await fs.readdir(base, { withFileTypes: true });
+    }
+  }
+
   const credentials = await credentialIdentities(base, destination, entries);
   const protectedHomes = await Promise.all([base, destination].map(async (path) => {
     try { return await fs.realpath(path); } catch (error) {
@@ -57,17 +69,42 @@ export async function buildProfileHome(slug: string, separated = false): Promise
       throw error;
     }
   }));
+  const profileEntries = await fs.readdir(destination, { withFileTypes: true });
+  // Older releases could create an independent database before the base had
+  // one. Keep the original store accessible on subsequent launches and syncs.
+  const localDatabases = new Set<string>();
+  for (const entry of profileEntries) {
+    if (separated || !entry.isFile() || !HISTORY_DATABASE.test(entry.name)) continue;
+    const local = await fs.lstat(join(destination, entry.name), { bigint: true });
+    const shared = await fs.stat(join(base, entry.name), { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return undefined;
+    });
+    if (!shared || local.dev !== shared.dev || local.ino !== shared.ino) localDatabases.add(entry.name);
+  }
+  const localHistory = localDatabases.size > 0;
+  const profileNames = new Set(profileEntries.map(entry => entry.name));
+  let useBaseSqlite = !separated && !localHistory;
   const desired = new Set<string>();
   for (const entry of entries) {
-    if (separated || isPrivateName(entry.name)) continue;
+    if (separated) continue;
     const target = join(base, entry.name);
-    if (!entry.isDirectory() && await aliasesCredential(target, credentials, entry.isSymbolicLink(), protectedHomes)) continue;
+    if (isPrivateName(entry.name)) {
+      if (entry.isSymbolicLink() && /\.sqlite-(?:wal|shm|journal)$/i.test(entry.name)) useBaseSqlite = false;
+      continue;
+    }
+    if (!entry.isDirectory() && await aliasesCredential(target, credentials, entry.isSymbolicLink(), protectedHomes)) {
+      // A native sqlite_home would open excluded database aliases directly.
+      if (entry.name.endsWith(".sqlite")) useBaseSqlite = false;
+      continue;
+    }
+    if (localHistory && HISTORY_DATABASE.test(entry.name) &&
+      (localDatabases.has(entry.name) || !profileNames.has(entry.name))) continue;
     desired.add(entry.name);
     const link = join(destination, entry.name);
     await ensureSharedEntry(link, target, entry.isDirectory());
   }
 
-  const profileEntries = await fs.readdir(destination, { withFileTypes: true });
   for (const entry of profileEntries) {
     if (entry.name === "auth.json" || entry.name === "config.toml" || desired.has(entry.name)) {
       continue;
@@ -83,7 +120,7 @@ export async function buildProfileHome(slug: string, separated = false): Promise
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
-  await writeProfileConfig(base, destination);
+  await writeProfileConfig(base, destination, separated, useBaseSqlite);
   return destination;
 }
 
@@ -185,7 +222,7 @@ async function ensureSharedEntry(link: string, target: string, directory: boolea
  * Codex can otherwise use a global keyring entry, defeating CODEX_HOME auth
  * isolation. The base file is re-read on every launch, so changes remain live.
  */
-async function writeProfileConfig(base: string, destination: string): Promise<void> {
+async function writeProfileConfig(base: string, destination: string, separated: boolean, useBaseSqlite: boolean): Promise<void> {
   let source = "";
   try {
     source = await fs.readFile(join(base, "config.toml"), "utf8");
@@ -196,6 +233,10 @@ async function writeProfileConfig(base: string, destination: string): Promise<vo
   try {
     config = parse(source, { integersAsBigInt: true });
     config.cli_auth_credentials_store = "file";
+    if (separated) config.sqlite_home = resolve(destination);
+    else if (useBaseSqlite && config.sqlite_home === undefined && !process.env.CODEX_SQLITE_HOME?.trim()) {
+      config.sqlite_home = resolve(base);
+    }
     if (config.profiles && typeof config.profiles === "object" && !Array.isArray(config.profiles)) {
       for (const profile of Object.values(config.profiles)) {
         if (profile && typeof profile === "object" && !Array.isArray(profile)) {

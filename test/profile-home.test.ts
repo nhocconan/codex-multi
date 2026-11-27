@@ -10,6 +10,7 @@ let base = "";
 let manager = "";
 
 beforeEach(async () => {
+  vi.stubEnv("CODEX_SQLITE_HOME", "");
   root = await fs.mkdtemp(join(tmpdir(), "cpm-home-"));
   base = join(root, "base");
   manager = join(root, "manager");
@@ -31,6 +32,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
   delete process.env.CODEX_MULTI_BASE_HOME;
   delete process.env.CODEX_MULTI_HOME;
   await fs.rm(root, { recursive: true, force: true });
@@ -81,6 +83,56 @@ describe("profile home isolation", () => {
     }
   });
 
+  it("shares first-run rollouts, archives and writer locks without scanning chat contents", async () => {
+    const readdir = vi.spyOn(fs, "readdir");
+    const [a, b] = await Promise.all([buildProfileHome("personal"), buildProfileHome("work")]);
+    for (const name of ["sessions", "archived_sessions", "thread-writer-locks"]) {
+      await fs.writeFile(join(a, name, "fixture"), name);
+      expect(await fs.readFile(join(b, name, "fixture"), "utf8")).toBe(name);
+    }
+    await buildProfileHome("work");
+    expect(readdir.mock.calls.every(([path]) => [base, a, b].includes(String(path)))).toBe(true);
+    expect(parse(await fs.readFile(join(b, "config.toml"), "utf8")).sqlite_home).toBe(base);
+  });
+
+  it("keeps previously detached history usable when a base database appears later", async () => {
+    const home = join(manager, "profiles", "legacy");
+    await fs.mkdir(join(home, "sessions"), { recursive: true });
+    await fs.writeFile(join(home, "sessions", "original.jsonl"), "original rollout");
+    await fs.writeFile(join(home, "state_5.sqlite"), "original state");
+    await buildProfileHome("legacy");
+    await fs.writeFile(join(base, "state_5.sqlite"), "base state");
+    await fs.writeFile(join(base, "thread_history_1.sqlite"), "base history");
+    await buildProfileHome("legacy");
+    expect(await fs.readFile(join(home, "state_5.sqlite"), "utf8")).toBe("original state");
+    expect(await fs.readFile(join(home, "sessions", "original.jsonl"), "utf8")).toBe("original rollout");
+    await expect(fs.stat(join(home, "thread_history_1.sqlite"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(parse(await fs.readFile(join(home, "config.toml"), "utf8")).sqlite_home).toBeUndefined();
+  });
+
+  it("respects an explicit shared SQLite location and isolates a separated profile", async () => {
+    const custom = join(root, "custom-store");
+    await fs.writeFile(join(base, "config.toml"), `sqlite_home = ${JSON.stringify(custom)}\n`);
+    const shared = await buildProfileHome("work");
+    const separate = await buildProfileHome("private", true);
+    expect(parse(await fs.readFile(join(shared, "config.toml"), "utf8")).sqlite_home).toBe(custom);
+    expect(parse(await fs.readFile(join(separate, "config.toml"), "utf8")).sqlite_home).toBe(separate);
+    await expect(fs.stat(join(separate, "sessions"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("honors the native SQLite environment fallback for shared profiles", async () => {
+    vi.stubEnv("CODEX_SQLITE_HOME", join(root, "custom-store"));
+    const home = await buildProfileHome("work");
+    expect(parse(await fs.readFile(join(home, "config.toml"), "utf8")).sqlite_home).toBeUndefined();
+  });
+
+  it("does not direct native SQLite to a base store with a credential alias", async () => {
+    await fs.link(join(base, "auth.json"), join(base, "state_5.sqlite"));
+    const home = await buildProfileHome("work");
+    expect(parse(await fs.readFile(join(home, "config.toml"), "utf8")).sqlite_home).toBeUndefined();
+    await expect(fs.stat(join(home, "state_5.sqlite"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("rebuilds from the latest base config without touching profile auth", async () => {
     const home = await buildProfileHome("work");
     await fs.writeFile(join(home, "auth.json"), '{"auth_mode":"chatgpt","tokens":{"x":"y"}}');
@@ -104,6 +156,7 @@ describe("profile home isolation", () => {
     const config = parse(await fs.readFile(join(home, "config.toml"), "utf8"));
     expect(config).toEqual({
       cli_auth_credentials_store: "file",
+      sqlite_home: base,
       profiles: {
         work: { cli_auth_credentials_store: "file" },
         inline: { cli_auth_credentials_store: "file", model: "test-model" },
@@ -128,6 +181,7 @@ describe("profile home isolation", () => {
     await fs.writeFile(join(base, "config.toml"), source);
     const expected = parse(source, { integersAsBigInt: true });
     expected.cli_auth_credentials_store = "file";
+    expected.sqlite_home = base;
     (expected.profiles as Record<string, Record<string, unknown>>).work!.cli_auth_credentials_store = "file";
 
     const home = await buildProfileHome("personal");
