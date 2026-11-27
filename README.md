@@ -149,6 +149,43 @@ The slug and launcher stay the same. If the new login fails, Codex Multi restore
 the previous profile login. If you have already removed a profile,
 `cpm add --name Student --slug student` can reuse its slug.
 
+## Continue a local chat in another profile
+
+Exit the original CLI session or quit the Desktop instance that has the chat
+open. From the same project directory, use the destination profile's launcher:
+
+```bash
+codex-work resume <thread-id>
+codex-work resume --all
+```
+
+The first command continues the original thread. The second opens the picker
+across working directories. For a thread started by `codex exec`, pass its ID
+directly or add `--include-non-interactive` to the interactive resume picker.
+On macOS, open `cpm desktop work` and select the chat in its original local
+project. An “active writer” error means the previous process still holds the
+thread. Quit that process before trying the same ID again.
+
+If Codex asks for the original ChatGPT account or workspace, use that account
+to resume the same ID. To continue with the new account, fork the local chat:
+
+```bash
+codex-work fork <thread-id>
+```
+
+The native fork creates a new ID with the prior conversation as context. Send
+a message to save the fork, exit the CLI, then open it in the destination
+Desktop profile or use `codex-work resume <new-thread-id>`. The destination
+account supplies its own model access, workspace credits and connector permissions.
+
+Shared profiles initialize rollout, archive and writer-lock directories before
+the first turn. They use Codex's `sqlite_home` for the shared thread database,
+honoring an explicit SQLite location. An upgrade preserves an older profile's
+independent history database and populated rollout directories. Open those
+chats with the profile that created them. `--separated` keeps a private store.
+These mechanisms apply to chats persisted on this machine. Cloud tasks and
+account-scoped projects follow the account and workspace selected in Codex.
+
 ## Commands
 
 | Command | Purpose |
@@ -320,8 +357,8 @@ cpm edit work --desktop-color auto     # back to the per-slug default
 Under the hood each alias launches the unmodified desktop app with the
 profile's `CODEX_HOME` and its own app data directory, so sign-in sessions,
 window state, and credentials stay per profile while Codex history, projects,
-skills, and config remain shared from `~/.codex` — chats themselves are
-cloud-synced per account. The desktop app's UI-state file stays private per
+skills, and config use the shared local home. Cloud-backed features use the
+selected account and workspace. The desktop app's UI-state file stays private per
 profile so simultaneous instances never conflict. Opening the same alias twice
 reuses the running instance.
 
@@ -465,9 +502,11 @@ npm run build
 npm pack --dry-run
 ```
 
-With the official Codex CLI installed, `npm run test:native-cli` checks real
-argument parsing and file-based credential selection using a temporary home and
-synthetic credentials. It sends no model requests and never opens the app.
+With the official Codex CLI installed, `npm run test:native-cli` checks argument
+parsing, credential selection, cross-profile resumes and forks using temporary
+homes and synthetic credentials. Model requests go to a local test server.
+The test also resumes a chat through the desktop app-server protocol and
+verifies that the CLI can continue the resulting turn.
 
 The published CLI keeps its runtime surface small: `cross-spawn` safely runs
 Codex’s Windows `.cmd` shim, `proper-lockfile` protects profile lifecycle

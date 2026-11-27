@@ -25,10 +25,13 @@ Development checks use Node 22; the distributed CLI still targets Node 18+.
 With the official CLI installed, run `npm run test:native-cli` after a Codex
 upgrade. It builds the manager and exercises login status, leading global
 options, named config profiles, help, and shell completion against the installed
-binary. All state and credentials are synthetic and live in a temporary home;
-it sends no model requests, performs no login, and opens no desktop app. It also
-asserts repeated launches leave the generated private config unchanged. Set
-`CODEX_MULTI_CODEX_BIN` to choose the exact official CLI binary.
+binary. A loopback Responses fixture records the input of each turn. Two
+profiles exercise same-ID resume, the ChatGPT account mismatch, native fork,
+and a round trip through the desktop app-server protocol. The test checks the
+previous messages are present and repeated launches preserve the generated
+config. All profiles and credentials are synthetic. Set `CODEX_MULTI_CODEX_BIN`
+to run the same tests against the CLI bundled with the desktop app. This
+exercises its backend without opening an Electron window.
 
 Optional local SAST uses reviewed repository rules without registry downloads:
 

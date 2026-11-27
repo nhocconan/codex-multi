@@ -85,6 +85,15 @@ describe("cpm doctor", () => {
     if (targetKind === "missing") expect(log).toHaveBeenCalledWith(expect.stringContaining("queue_1.sqlite is missing or unreadable"));
   });
 
+  it.each([true, false])("identifies preserved local history (base database exists: %s)", async (baseExists) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const home = await seedProfile();
+    await fs.writeFile(join(home, "state_5.sqlite"), "old profile database");
+    if (baseExists) await fs.writeFile(join(root, "base-codex", "state_5.sqlite"), "base database");
+    expect(await doctor()).toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("codex-work resume <thread-id>"));
+  });
+
   it.each(["symbolic", "hard"])("rejects a %s linked launcher even when its target carries the ownership marker", async (kind) => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await seedProfile();

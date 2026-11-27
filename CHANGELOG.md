@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-27
+
+### Fixed
+
+- Share session, archive and writer-lock directories before the first Codex
+  turn so another profile can find the chat by ID. Use the shared SQLite
+  store for new shared profiles and a private store for separated profiles.
+- Preserve existing profile-local history databases during sync. Doctor now
+  identifies these databases and gives the command to reopen their chats.
+
+### Changed
+
+- Document when to resume a chat and when to fork it under another account.
+  Native smoke tests now cover account checks, forks and follow-up turns
+  across the CLI and the desktop app-server protocol.
+
 ## [0.3.3] - 2026-11-13
 
 ### Fixed

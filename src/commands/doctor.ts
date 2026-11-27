@@ -1,6 +1,7 @@
 import { existsSync, promises as fs } from "node:fs";
 import { basename, join } from "node:path";
 import { parse } from "smol-toml";
+import { HISTORY_DATABASE } from "../core/profile-home.ts";
 import { authFingerprint, inspectAuth } from "../core/auth.ts";
 import {
   desktopAliasName,
@@ -70,11 +71,14 @@ export async function doctor(): Promise<number> {
       errors.push(`${profile.label}: managed config.toml is missing or unreadable; run cpm sync`);
     }
     try {
-      const homeEntries = await fs.readdir(home);
-      for (const name of homeEntries) {
+      const homeEntries = await fs.readdir(home, { withFileTypes: true });
+      for (const entry of homeEntries) {
+        const name = entry.name;
         if (!name.endsWith(".sqlite") || isSeparated(profile)) continue;
         const entryPath = join(home, name);
         const basePath = join(baseCodexHome(), name);
+        const privateHistory = HISTORY_DATABASE.test(name) && entry.isFile();
+        const originalProfile = `${profile.label}: ${name} contains profile-local history; sync preserves it. Open the chat with ${command(profile)} resume <thread-id>.`;
         let baseStat;
         try {
           // Windows file identifiers can exceed Number's exact integer range.
@@ -82,15 +86,16 @@ export async function doctor(): Promise<number> {
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
             errors.push(`${profile.label}: could not inspect base ${name}`);
+          } else if (privateHistory) {
+            warnings.push(originalProfile);
           }
           continue;
         }
         try {
           const entryStat = await fs.stat(entryPath, { bigint: true });
           if (entryStat.dev !== baseStat.dev || entryStat.ino !== baseStat.ino) {
-            errors.push(
-              `${profile.label}: ${name} is detached from base Codex state; run cpm sync to repair`,
-            );
+            if (privateHistory) warnings.push(originalProfile);
+            else errors.push(`${profile.label}: ${name} is detached from base Codex state; run cpm sync to repair`);
           }
         } catch {
           errors.push(`${profile.label}: ${name} is missing or unreadable; run cpm sync to repair`);
