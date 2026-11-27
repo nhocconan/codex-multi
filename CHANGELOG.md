@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-11-27
+
+### Fixed
+
+- Resolve relative `CODEX_MULTI_BASE_HOME` paths before creating shared links.
+  Newly created profiles can resume chats and coordinate writers when the base
+  home is configured relative to the working directory.
+
 ## [0.3.4] - 2026-11-27
 
 ### Fixed
