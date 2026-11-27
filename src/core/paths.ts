@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 function home(): string {
   return homedir() || process.env.HOME || process.env.USERPROFILE || ".";
@@ -13,7 +13,7 @@ function envOr(name: string, fallback: string): string {
 
 /** Codex home whose non-auth data is shared by every managed profile. */
 export function baseCodexHome(): string {
-  return envOr("CODEX_MULTI_BASE_HOME", join(home(), ".codex"));
+  return resolve(envOr("CODEX_MULTI_BASE_HOME", join(home(), ".codex")));
 }
 
 /** Manager-owned state. It intentionally lives outside CODEX_HOME. */

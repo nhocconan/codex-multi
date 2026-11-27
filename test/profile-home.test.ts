@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { promises as fs } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
 import { parse } from "smol-toml";
 import { buildProfileHome, isPrivateName } from "../src/core/profile-home.ts";
@@ -93,6 +93,16 @@ describe("profile home isolation", () => {
     await buildProfileHome("work");
     expect(readdir.mock.calls.every(([path]) => [base, a, b].includes(String(path)))).toBe(true);
     expect(parse(await fs.readFile(join(b, "config.toml"), "utf8")).sqlite_home).toBe(base);
+  });
+
+  it("shares first-run history when the configured base path is relative", async () => {
+    process.env.CODEX_MULTI_BASE_HOME = relative(process.cwd(), base);
+    const first = await buildProfileHome("first");
+    const second = await buildProfileHome("second");
+    for (const name of ["sessions", "archived_sessions", "thread-writer-locks"]) {
+      await fs.writeFile(join(first, name, "fixture"), name);
+      expect(await fs.readFile(join(second, name, "fixture"), "utf8")).toBe(name);
+    }
   });
 
   it("keeps previously detached history usable when a base database appears later", async () => {
